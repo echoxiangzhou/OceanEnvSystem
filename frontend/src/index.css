@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+ 
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+ 
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+ 
+    --primary: 210 100% 43%; /* 使用海洋蓝色 */
+    --primary-foreground: 210 40% 98%;
+ 
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+ 
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+ 
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+ 
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+ 
+    --radius: 0.5rem;
+  }
+ 
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+ 
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+ 
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+ 
+    --primary: 210 100% 43%; /* 使用海洋蓝色 */
+    --primary-foreground: 210 40% 98%;
+ 
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+ 
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+ 
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+ 
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+}
+ 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* 基础样式设置 */
+  html {
+    font-family: sans-serif;
+  }
+  
+  h1 {
+    @apply text-title-1 font-bold text-gray-900;
+  }
+  
+  h2 {
+    @apply text-title-2 font-semibold text-gray-800;
+  }
+  
+  h3 {
+    @apply text-title-3 font-medium text-gray-700;
+  }
+}
+
+/* 自定义组件样式 */
+@layer components {
+  /* 海洋数据卡片 */
+  .ocean-card {
+    @apply p-md rounded-lg shadow-medium bg-white border border-gray-100;
+  }
+  
+  /* 数据表格容器 */
+  .data-table-container {
+    @apply w-full overflow-x-auto rounded-md border border-gray-200;
+  }
+  
+  /* 数据表格 */
+  .data-table {
+    @apply w-full border-collapse;
+  }
+  
+  .data-table th {
+    @apply p-sm text-left text-secondary bg-gray-50 border-b border-gray-200;
+  }
+  
+  .data-table td {
+    @apply p-sm border-b border-gray-100;
+  }
+  
+  /* 按钮样式 */
+  .btn {
+    @apply px-sm py-xs rounded-sm text-secondary inline-flex items-center justify-center transition-colors;
+  }
+  
+  .btn-primary {
+    @apply bg-ocean text-white hover:bg-ocean-dark;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-200 text-gray-700 hover:bg-gray-300;
+  }
+  
+  /* 海洋专业组件样式 */
+  .profile-viewer {
+    @apply p-md rounded-lg shadow-medium bg-white min-h-[400px] border border-gray-100;
+  }
+  
+  .map-viewer {
+    @apply p-md rounded-lg shadow-medium bg-white min-h-[400px] border border-gray-100;
+  }
+  
+  .timeseries-viewer {
+    @apply p-md rounded-lg shadow-medium bg-white min-h-[300px] border border-gray-100;
+  }
+  
+  .eddy-visualizer {
+    @apply p-md rounded-lg shadow-medium bg-white min-h-[400px] border border-gray-100;
+  }
+  
+  .thermocline-visualizer {
+    @apply p-md rounded-lg shadow-medium bg-white min-h-[400px] border border-gray-100;
+  }
+}
+
+/* 工具类样式 */
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
