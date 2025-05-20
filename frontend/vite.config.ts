@@ -1,26 +1,27 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import path from 'path'
+import { fileURLToPath } from 'url'
+import { dirname, resolve } from 'path'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': resolve(__dirname, './src'),
     },
   },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'shadcn-ui': [
-            './src/components/ui/button.tsx',
-            './src/components/ui/card.tsx',
-            './src/components/ui/input.tsx',
-            './src/components/ui/tabs.tsx',
-          ],
-        },
+  server: {
+    port: 3000,
+    proxy: {
+      // 配置API代理
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        // rewrite: (path) => path.replace(/^\/api/, '')
       },
     },
   },

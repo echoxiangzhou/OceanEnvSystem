@@ -1,5 +1,6 @@
 import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Link } from 'react-router-dom';
 
 const Dashboard = () => {
   return (
@@ -176,7 +177,7 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              <a href="/data/upload" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
+              <Link to="/data/import" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="24"
@@ -194,8 +195,8 @@ const Dashboard = () => {
                   <line x1="12" x2="12" y1="3" y2="15" />
                 </svg>
                 <span className="text-sm">上传数据</span>
-              </a>
-              <a href="/fusion/new" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
+              </Link>
+              <Link to="/fusion/new" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="24"
@@ -214,8 +215,8 @@ const Dashboard = () => {
                   <path d="M11 18H8a2 2 0 0 1-2-2V9" />
                 </svg>
                 <span className="text-sm">新建融合任务</span>
-              </a>
-              <a href="/diagnostics/thermocline" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
+              </Link>
+              <Link to="/diagnostics/thermocline" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="24"
@@ -232,8 +233,8 @@ const Dashboard = () => {
                   <path d="m19 9-5 5-4-4-3 3" />
                 </svg>
                 <span className="text-sm">跃层诊断</span>
-              </a>
-              <a href="/visualization/map" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
+              </Link>
+              <Link to="/visualization/map" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="24"
@@ -247,12 +248,12 @@ const Dashboard = () => {
                   className="h-5 w-5"
                 >
                   <circle cx="12" cy="12" r="10" />
-                  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+                  <path d="M12 2a14.5 14.5 0 0 0 0 20a14.5 14.5 0 0 0 0-20" />
                   <path d="M2 12h20" />
                 </svg>
                 <span className="text-sm">地图可视化</span>
-              </a>
-              <a href="/products/reports" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
+              </Link>
+              <Link to="/products/reports" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="24"
@@ -269,7 +270,7 @@ const Dashboard = () => {
                   <polyline points="14 2 14 8 20 8" />
                 </svg>
                 <span className="text-sm">生成报告</span>
-              </a>
+              </Link>
             </div>
           </CardContent>
         </Card>

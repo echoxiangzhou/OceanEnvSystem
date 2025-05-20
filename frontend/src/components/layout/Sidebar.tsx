@@ -1,5 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { Link, useLocation } from 'react-router-dom';
 
 interface SidebarProps extends React.HTMLAttributes<HTMLElement> {
   isOpen: boolean;
@@ -38,12 +39,7 @@ const navItems: NavItem[] = [
     children: [
       {
         title: '数据浏览',
-        href: '/data/browse',
-        icon: <span className="h-1.5 w-1.5 rounded-full bg-current" />,
-      },
-      {
-        title: '数据上传',
-        href: '/data/upload',
+        href: '/data',
         icon: <span className="h-1.5 w-1.5 rounded-full bg-current" />,
       },
       {
@@ -221,7 +217,23 @@ const navItems: NavItem[] = [
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, className, ...props }) => {
+  const location = useLocation();
   const [openItems, setOpenItems] = React.useState<Record<string, boolean>>({});
+
+  // 初始化时，根据当前路径决定哪个菜单项应该展开
+  React.useEffect(() => {
+    const newOpenItems: Record<string, boolean> = {};
+    navItems.forEach(item => {
+      if (item.children) {
+        const shouldBeOpen = item.children.some(child => 
+          location.pathname === child.href || location.pathname.startsWith(child.href + '/'));
+        if (shouldBeOpen) {
+          newOpenItems[item.title] = true;
+        }
+      }
+    });
+    setOpenItems(newOpenItems);
+  }, [location.pathname]);
 
   const toggleItem = (title: string) => {
     setOpenItems(prev => ({
@@ -278,14 +290,19 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, className, ...props }) => {
             {item.children && openItems[item.title] && (
               <div className="ml-6 mt-1 flex flex-col gap-1">
                 {item.children.map((child) => (
-                  <a
+                  <Link
                     key={child.title}
-                    href={child.href}
-                    className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent hover:text-accent-foreground text-muted-foreground"
+                    to={child.href}
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent hover:text-accent-foreground",
+                      location.pathname === child.href || location.pathname.startsWith(child.href + '/') 
+                        ? "bg-accent text-accent-foreground" 
+                        : "text-muted-foreground"
+                    )}
                   >
                     {child.icon}
                     <span className="text-sm">{child.title}</span>
-                  </a>
+                  </Link>
                 ))}
               </div>
             )}

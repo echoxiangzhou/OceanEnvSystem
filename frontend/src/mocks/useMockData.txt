@@ -1,0 +1,16 @@
+// 修改dataService.ts中的getAllDatasets方法
+import { mockDatasets } from '../mocks/mockData';
+
+// 在dataService.ts中添加以下代码
+// 检查是否使用模拟数据
+const useMockData = true; // 在生产环境中设置为false
+
+// 修改getAllDatasets方法
+async getAllDatasets(): Promise<ApiResponse<Dataset[]>> {
+  if (useMockData) {
+    return { data: mockDatasets };
+  }
+  return apiClient.get<Dataset[]>('/datasets');
+}
+
+// 类似地修改其他方法
