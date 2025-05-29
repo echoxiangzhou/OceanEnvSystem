@@ -70,6 +70,8 @@ class KFResponse(BaseModel):
     state_estimates: List[List[float]]
     covariances: List[List[List[float]]]
 
+from app.core.json import custom_jsonable_encoder
+
 @router.post("/run", response_model=KFResponse, summary="卡尔曼滤波计算")
 def run_kf(req: KFRequest):
     xs, Ps = kalman_filter(
@@ -81,7 +83,12 @@ def run_kf(req: KFRequest):
         np.array(req.process_noise),
         np.array(req.observation_noise)
     )
-    return KFResponse(
-        state_estimates=xs.tolist(),
-        covariances=Ps.tolist()
-    )
+    
+    # 使用我们的自定义JSON编码器
+    result = {
+        "state_estimates": xs,
+        "covariances": Ps
+    }
+    result = custom_jsonable_encoder(result)
+    
+    return KFResponse(**result)

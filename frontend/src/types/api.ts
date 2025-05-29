@@ -12,11 +12,11 @@ export interface Dataset {
   description: string;
   source_type: 'BUOY' | 'SURVEY' | 'SATELLITE' | 'MODEL';
   data_type: 'OBSERVATIONS' | 'FORECAST' | 'REANALYSIS';
-  spatial_coverage: {
+  spatial_coverage?: {
     type: string;
     coordinates: number[][][];
   };
-  temporal_coverage: {
+  temporal_coverage?: {
     start: string;
     end: string;
   };
@@ -25,6 +25,10 @@ export interface Dataset {
   file_location: string;
   created_at: string;
   updated_at: string;
+  urlPath?: string; // Thredds数据集特有的路径
+  opendapUrl?: string; // OPeNDAP访问URL
+  httpUrl?: string; // HTTP直接下载URL
+  threddsId?: string; // Thredds服务器上的ID
 }
 
 export interface Variable {

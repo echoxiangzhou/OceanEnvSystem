@@ -46,6 +46,11 @@ const navItems: NavItem[] = [
         title: '数据导入',
         href: '/data/import',
         icon: <span className="h-1.5 w-1.5 rounded-full bg-current" />,
+      },
+      {
+        title: 'CF-1.8规范检查与转换',
+        href: '/data/cf-check',
+        icon: <span className="h-1.5 w-1.5 rounded-full bg-red-500" />,
       }
     ]
   },
@@ -220,6 +225,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, className, ...props }) => {
   const location = useLocation();
   const [openItems, setOpenItems] = React.useState<Record<string, boolean>>({});
 
+  // 调试输出
+  console.log('Sidebar navItems:', navItems);
+  console.log('数据管理菜单:', navItems.find(item => item.title === '数据管理'));
+
   // 初始化时，根据当前路径决定哪个菜单项应该展开
   React.useEffect(() => {
     const newOpenItems: Record<string, boolean> = {};
@@ -230,6 +239,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, className, ...props }) => {
         if (shouldBeOpen) {
           newOpenItems[item.title] = true;
         }
+      }
+      // 默认展开数据管理菜单以便查看
+      if (item.title === '数据管理') {
+        newOpenItems[item.title] = true;
       }
     });
     setOpenItems(newOpenItems);

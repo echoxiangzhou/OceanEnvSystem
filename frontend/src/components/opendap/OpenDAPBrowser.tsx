@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useOpenDAPData } from '../../hooks/useDataHooks';
+import { useOpendapMetadataByPath } from '../../hooks/useDataHooks';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorMessage from '../common/ErrorMessage';
 
@@ -12,7 +12,7 @@ const OpenDAPBrowser: React.FC<OpenDAPBrowserProps> = ({ onDatasetSelect }) => {
   const [isExploring, setIsExploring] = useState<boolean>(false);
 
   // 使用钩子获取OPeNDAP数据
-  const { data: openDAPData, isLoading, isError, error, refetch } = useOpenDAPData(datasetPath, {
+  const { data: openDAPData, isLoading, isError, error, refetch } = useOpendapMetadataByPath(datasetPath, {
     enabled: isExploring && !!datasetPath,
   });
 

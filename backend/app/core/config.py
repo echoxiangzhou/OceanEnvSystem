@@ -9,18 +9,20 @@ class Settings(BaseSettings):
     VERSION: str = "0.1.0"
     API_V1_STR: str = "/api/v1"
     
-    # 数据库配置
-    POSTGRES_SERVER: str = os.getenv("POSTGRES_SERVER", "localhost")
-    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
-    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "iocas#@6760")
-    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "oceanenv")
+    # MySQL数据库配置
+    MYSQL_SERVER: str = os.getenv("MYSQL_SERVER", "localhost")
+    MYSQL_PORT: int = int(os.getenv("MYSQL_PORT", "3306"))
+    MYSQL_USER: str = os.getenv("MYSQL_USER", "oceanenv_user")
+    MYSQL_PASSWORD: str = os.getenv("MYSQL_PASSWORD", "iocas6760")
+    MYSQL_DB: str = os.getenv("MYSQL_DB", "oceanenv_metadata")
+    MYSQL_CHARSET: str = os.getenv("MYSQL_CHARSET", "utf8mb4")
     SQLALCHEMY_DATABASE_URI: Optional[str] = None
 
     @property
     def get_database_url(self) -> str:
         if self.SQLALCHEMY_DATABASE_URI:
             return self.SQLALCHEMY_DATABASE_URI
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}/{self.POSTGRES_DB}"
+        return f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}@{self.MYSQL_SERVER}:{self.MYSQL_PORT}/{self.MYSQL_DB}?charset={self.MYSQL_CHARSET}"
 
     # Redis配置
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")

@@ -34,6 +34,28 @@ class DataConverter:
         ds.to_netcdf(output_path)
         return output_path
 
+    def convert_to_path(self, file_path: str, output_path: str, file_type: str) -> str:
+        """
+        转换文件并保存到指定的完整路径
+        :param file_path: 输入文件路径
+        :param output_path: 输出 NetCDF 文件的完整路径
+        :param file_type: 文件类型（csv, xlsx, cnv）
+        :return: NetCDF 文件保存路径
+        """
+        if file_type == "csv":
+            ds = self._from_csv(file_path)
+        elif file_type == "xlsx":
+            ds = self._from_xlsx(file_path)
+        elif file_type == "cnv":
+            ds = self._from_cnv(file_path)
+        else:
+            raise ValueError("Unsupported file type")
+
+        # 确保输出目录存在
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        ds.to_netcdf(output_path)
+        return output_path
+
     def _from_csv(self, file_path: str) -> xr.Dataset:
         df = pd.read_csv(file_path)
         ds = xr.Dataset.from_dataframe(df)

@@ -76,6 +76,8 @@ class OIResponse(BaseModel):
     interp_values: List[float]
     interp_error: List[float]
 
+from app.core.json import custom_jsonable_encoder
+
 @router.post("/run", response_model=OIResponse, summary="最优插值计算")
 def run_oi(req: OIRequest):
     interp_values, interp_error = optimal_interpolation(
@@ -86,7 +88,12 @@ def run_oi(req: OIRequest):
         L=req.L,
         noise=req.noise
     )
-    return OIResponse(
-        interp_values=interp_values.tolist(),
-        interp_error=interp_error.tolist()
-    )
+    
+    # 使用自定义JSON编码器处理NumPy类型
+    result = {
+        "interp_values": interp_values,
+        "interp_error": interp_error
+    }
+    result = custom_jsonable_encoder(result)
+    
+    return OIResponse(**result)

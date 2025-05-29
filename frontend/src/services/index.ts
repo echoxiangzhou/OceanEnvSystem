@@ -1,10 +1,11 @@
 import apiClient from './apiClient';
 import authService from './authService';
-import dataService from './dataService';
+import { dataService } from './dataService';
 import diagnosticsService from './diagnosticsService';
 import fusionService from './fusionService';
 import productService from './productService';
 import taskService from './taskService';
+import { metadataService } from './metadataService';
 
 // Export all services
 export {
@@ -14,5 +15,6 @@ export {
   diagnosticsService,
   fusionService,
   productService,
-  taskService
+  taskService,
+  metadataService
 };

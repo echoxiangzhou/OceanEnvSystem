@@ -35,10 +35,13 @@ class FrontResponse(BaseModel):
     centers: List[dict]
     indices: List[List[int]]
 
+from app.core.json import custom_jsonable_encoder
+
 @router.post("/detect", response_model=FrontResponse, summary="锋面检测")
 def detect_front_api(req: FrontRequest):
     sst = np.array(req.sst)
     lat = np.array(req.lat)
     lon = np.array(req.lon)
     result = detect_front(sst, lat, lon, req.gradient_threshold)
-    return FrontResponse(**result)
+    # 确保结果中的NumPy类型被转换为Python原生类型
+    return FrontResponse(**custom_jsonable_encoder(result))

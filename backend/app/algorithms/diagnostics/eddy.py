@@ -35,10 +35,13 @@ class EddyResponse(BaseModel):
     centers: List[dict]
     indices: List[List[int]]
 
+from app.core.json import custom_jsonable_encoder
+
 @router.post("/detect", response_model=EddyResponse, summary="涡旋检测")
 def detect_eddy_api(req: EddyRequest):
     ssh = np.array(req.ssh)
     lat = np.array(req.lat)
     lon = np.array(req.lon)
     result = detect_eddy(ssh, lat, lon, req.threshold)
-    return EddyResponse(**result)
+    # 确保结果中的NumPy类型被转换为Python原生类型
+    return EddyResponse(**custom_jsonable_encoder(result))

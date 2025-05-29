@@ -9,6 +9,39 @@ const Dashboard: React.FC = () => {
         <p className="text-gray-600">欢迎使用海洋环境数据融合与诊断产品集成软件</p>
       </div>
       
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium mb-4">系统状态</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex items-center p-4 bg-green-50 rounded-lg">
+            <div className="flex-shrink-0">
+              <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              </div>
+            </div>
+            <div className="ml-4">
+              <div className="text-sm font-medium text-green-900">数据服务</div>
+              <div className="text-sm text-green-700">正常运行</div>
+            </div>
+          </div>
+          
+          <div className="flex items-center p-4 bg-gray-50 rounded-lg">
+            <div className="flex-shrink-0">
+              <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10 2L3 7v11a2 2 0 002 2h10a2 2 0 002-2V7l-7-5z" />
+                </svg>
+              </div>
+            </div>
+            <div className="ml-4">
+              <div className="text-sm font-medium text-gray-900">Thredds服务</div>
+              <div className="text-sm text-gray-700">正常运行</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
       {/* 统计卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-lg shadow">

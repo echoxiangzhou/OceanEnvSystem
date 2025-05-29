@@ -10,6 +10,8 @@ const Dashboard = () => {
         <p className="text-muted-foreground">欢迎使用海洋环境数据融合与诊断产品集成软件</p>
       </div>
       
+    
+      
       <div className="grid gap-md md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-sm">
@@ -166,6 +168,30 @@ const Dashboard = () => {
                   <p className="text-xs text-muted-foreground">3天前</p>
                 </div>
               </div>
+              
+              <div className="flex items-center gap-sm border-b pb-sm">
+                <div className="h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center text-white">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="h-4 w-4"
+                  >
+                    <path d="M9 12l2 2 4-4" />
+                    <path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">完成了12个NetCDF文件的CF规范检查</p>
+                  <p className="text-xs text-muted-foreground">1天前</p>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -270,6 +296,43 @@ const Dashboard = () => {
                   <polyline points="14 2 14 8 20 8" />
                 </svg>
                 <span className="text-sm">生成报告</span>
+              </Link>
+              
+              <Link to="/cf-compliance" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                >
+                  <path d="M9 12l2 2 4-4" />
+                  <path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9" />
+                </svg>
+                <span className="text-sm">CF规范检查</span>
+              </Link>
+              
+              <Link to="/cf-compliance/monitor" className="flex items-center gap-sm p-sm rounded-md hover:bg-accent hover:text-accent-foreground">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                >
+                  <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <span className="text-sm">监控管理</span>
               </Link>
             </div>
           </CardContent>

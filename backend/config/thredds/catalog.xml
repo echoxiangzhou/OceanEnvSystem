@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<catalog name="海洋环境数据融合与诊断系统"
+         xmlns="http://www.unidata.ucar.edu/namespaces/thredds/InvCatalog/v1.0"
+         xmlns:xlink="http://www.w3.org/1999/xlink">
+
+  <service name="all" serviceType="Compound" base="">
+    <service name="odap" serviceType="OPeNDAP" base="/thredds/dodsC/"/>
+    <service name="http" serviceType="HTTPServer" base="/thredds/fileServer/"/>
+    <service name="wcs" serviceType="WCS" base="/thredds/wcs/"/>
+    <service name="wms" serviceType="WMS" base="/thredds/wms/"/>
+    <service name="ncss" serviceType="NetcdfSubset" base="/thredds/ncss/"/>
+  </service>
+
+  <!-- 数据集分组 -->
+  <dataset name="海洋环境数据" ID="oceanenv">
+  
+    <!-- 原始数据 -->
+    <dataset name="原始数据" ID="raw" urlPath="oceanenv/raw">
+      <metadata inherited="true">
+        <serviceName>all</serviceName>
+        <dataType>Grid</dataType>
+        <documentation type="summary">未经处理的原始NetCDF数据文件</documentation>
+      </metadata>
+      <datasetScan name="原始数据集" ID="raw_data" 
+                  path="oceanenv/raw" location="/data/oceanenv/raw/" >
+        <metadata inherited="true">
+          <dataType>Grid</dataType>
+          <dataFormat>NetCDF</dataFormat>
+        </metadata>
+        <filter>
+          <include wildcard="*.nc"/>
+          <include wildcard="*.netcdf"/>
+          <include wildcard="*.nc4"/>
+        </filter>
+      </datasetScan>
+    </dataset>
+    
+    <!-- 处理中数据 -->
+    <dataset name="处理中数据" ID="processing" urlPath="oceanenv/processing">
+      <metadata inherited="true">
+        <serviceName>all</serviceName>
+        <dataType>Grid</dataType>
+        <documentation type="summary">正在进行标准规范转换的数据文件</documentation>
+      </metadata>
+      <datasetScan name="处理中数据集" ID="processing_data" 
+                  path="oceanenv/processing" location="/data/oceanenv/processing/" >
+        <metadata inherited="true">
+          <dataType>Grid</dataType>
+          <dataFormat>NetCDF</dataFormat>
+        </metadata>
+        <filter>
+          <include wildcard="*.nc"/>
+          <include wildcard="*.netcdf"/>
+          <include wildcard="*.nc4"/>
+        </filter>
+      </datasetScan>
+    </dataset>
+    
+    <!-- 标准数据 (CF-1.8规范) -->
+    <dataset name="标准数据" ID="standard" urlPath="oceanenv/standard">
+      <metadata inherited="true">
+        <serviceName>all</serviceName>
+        <dataType>Grid</dataType>
+        <documentation type="summary">标准化NetCDF数据文件</documentation>
+      </metadata>
+      <datasetScan name="标准数据集" ID="standard_data" 
+                  path="oceanenv/standard" location="/data/oceanenv/standard/" >
+        <metadata inherited="true">
+          <dataType>Grid</dataType>
+          <dataFormat>NetCDF</dataFormat>
+        </metadata>
+        <filter>
+          <include wildcard="*.nc"/>
+          <include wildcard="*.netcdf"/>
+          <include wildcard="*.nc4"/>
+        </filter>
+      </datasetScan>
+    </dataset>
+  
+  </dataset>
+</catalog>

@@ -83,6 +83,8 @@ class ClineResponse(BaseModel):
     upper_value: float = Field(..., description="跃层上层平均值")
     lower_value: float = Field(..., description="跃层下层平均值")
 
+from app.core.json import custom_jsonable_encoder
+
 @router.post("/detect", response_model=ClineResponse, summary="跃层检测（支持温度/密度/声速）")
 def detect_cline_api(req: ClineRequest):
     """
@@ -119,7 +121,9 @@ def detect_cline_api(req: ClineRequest):
             cline_type=req.cline_type,
             window_size=req.window_size
         )
-        return ClineResponse(**result)
+        
+        # 确保结果中的NumPy类型被转换为Python原生类型
+        return ClineResponse(**custom_jsonable_encoder(result))
         
     except Exception as e:
         raise HTTPException(

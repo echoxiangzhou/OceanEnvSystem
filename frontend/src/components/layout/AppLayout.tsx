@@ -13,7 +13,9 @@ const navItems = [
     path: '/data',
     subItems: [
       { label: '数据浏览', path: '/data' },
-      { label: '数据导入', path: '/data/import' }
+      { label: '数据导入', path: '/data/import' },
+      { label: '规范检查与转换', path: '/data/cf-check' },
+      { label: '规范监控管理', path: '/cf-compliance/monitor' }
     ]
   },
   {
@@ -25,8 +27,8 @@ const navItems = [
     label: '数据融合',
     path: '/fusion',
     subItems: [
-      { label: '融合任务', path: '/fusion/tasks' },
-      { label: '新建融合', path: '/fusion/new' }
+      { label: '创建融合任务', path: '/fusion/new' },
+      { label: '历史融合任务', path: '/fusion/task' }
     ]
   },
   {
@@ -74,7 +76,8 @@ const navItems = [
 
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
-    '数据管理': true // 默认展开数据管理
+    '数据管理': true, // 默认展开数据管理
+    '数据融合': true  // 默认展开数据融合
   });
 
   const toggleItem = (label: string) => {
@@ -84,12 +87,21 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     }));
   };
 
+  const handleItemClick = (item: typeof navItems[0]) => {
+    if (item.subItems && item.subItems.length > 0) {
+      toggleItem(item.label);
+    } else {
+      // 如果没有子菜单，直接导航
+      window.location.href = item.path;
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-100">
       {/* 顶部导航栏 */}
       <header className="fixed top-0 left-0 right-0 bg-white shadow-sm h-14 z-10 px-4 flex items-center justify-between">
         <div className="flex items-center">
-          <h1 className="text-lg font-medium text-blue-700">海洋环境 数据融合与诊断系统</h1>
+          <h1 className="text-lg font-medium text-blue-700">海洋环境数据融合与诊断系统</h1>
         </div>
         <div className="flex items-center space-x-4">
           <button className="p-2 text-gray-600 hover:text-gray-900">
@@ -118,11 +130,11 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               <li key={item.label}>
                 <div 
                   className="flex items-center px-4 py-2 text-gray-700 hover:bg-gray-100 cursor-pointer"
-                  onClick={() => toggleItem(item.label)}
+                  onClick={() => handleItemClick(item)}
                 >
                   <span className="mr-3">{item.icon}</span>
                   <span>{item.label}</span>
-                  {item.subItems && (
+                  {item.subItems && item.subItems.length > 0 && (
                     <svg 
                       xmlns="http://www.w3.org/2000/svg" 
                       className={`ml-auto h-4 w-4 transition-transform ${expandedItems[item.label] ? 'rotate-180' : ''}`} 
@@ -134,7 +146,7 @@ const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                     </svg>
                   )}
                 </div>
-                {item.subItems && expandedItems[item.label] && (
+                {item.subItems && item.subItems.length > 0 && expandedItems[item.label] && (
                   <ul className="mt-1 ml-8 space-y-1">
                     {item.subItems.map((subItem) => (
                       <li key={subItem.label}>
