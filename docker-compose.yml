@@ -1,0 +1,48 @@
+version: '3'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: oceanenv-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - THREDDS_SERVER_URL=http://oceanenv-thredds:8080
+    depends_on:
+      - thredds
+    networks:
+      - oceanenv-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: oceanenv-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+    depends_on:
+      - backend
+    networks:
+      - oceanenv-network
+
+  thredds:
+    image: unidata/thredds-docker:5.6
+    container_name: oceanenv-thredds
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/docker/thredds/thredds-content:/usr/local/tomcat/content/thredds
+      - ./backend/docker/thredds/data:/data
+    networks:
+      - oceanenv-network
+    restart: unless-stopped
+
+networks:
+  oceanenv-network:
+    driver: bridge

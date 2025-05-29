@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, asc
+from sqlalchemy import func, desc, asc, or_
 import logging
 
 from app.db.session import get_db
@@ -98,7 +98,7 @@ async def get_metadata_list(
         
         if search:
             query = query.filter(
-                db.or_(
+                or_(
                     NetCDFMetadata.file_name.ilike(f"%{search}%"),
                     NetCDFMetadata.title.ilike(f"%{search}%")
                 )

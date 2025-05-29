@@ -107,53 +107,74 @@ async def validate_netcdf_compliance(request: ValidationRequest):
 @router.post("/validate-upload")
 async def validate_uploaded_file(file: UploadFile = File(...)):
     """
-    验证上传的NetCDF文件的CF-1.8规范符合性
+    验证上传的NetCDF文件的CF-1.8规范符合性，并暂存文件
     """
     try:
         # 检查文件格式
         if not file.filename.lower().endswith(('.nc', '.netcdf', '.nc4')):
             raise HTTPException(status_code=400, detail="只支持NetCDF格式文件")
         
-        # 保存临时文件
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.nc') as temp_file:
-            content = await file.read()
-            temp_file.write(content)
-            temp_path = temp_file.name
+        logger.info(f"开始验证上传文件: {file.filename}")
         
-        try:
-            # 验证文件
-            validation_result = validate_netcdf_file(temp_path)
-            
-            # 统计问题数量
-            critical_count = len([i for i in validation_result.issues if i.level == ValidationLevel.CRITICAL])
-            warning_count = len([i for i in validation_result.issues if i.level == ValidationLevel.WARNING])
-            info_count = len([i for i in validation_result.issues if i.level == ValidationLevel.INFO])
-            
-            # 格式化问题列表
-            issues = [
-                {
-                    'level': issue.level.value,
-                    'code': issue.code,
-                    'message': issue.message,
-                    'location': issue.location,
-                    'suggestion': issue.suggestion
-                }
-                for issue in validation_result.issues
-            ]
-            
-            return ValidationResponse(
-                is_valid=validation_result.is_valid,
-                cf_version=validation_result.cf_version,
-                critical_issues=critical_count,
-                warning_issues=warning_count,
-                info_issues=info_count,
-                issues=issues
-            )
-            
-        finally:
-            # 删除临时文件
-            os.unlink(temp_path)
-            
+        # 创建uploads目录
+        uploads_dir = os.path.join(os.getcwd(), "data", "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+        
+        # 保存文件到uploads目录
+        file_path = os.path.join(uploads_dir, file.filename)
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="文件内容为空")
+        
+        logger.info(f"文件大小: {len(content)} bytes")
+        
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        logger.info(f"文件已暂存: {file_path}")
+        
+        # 验证文件
+        validation_result = validate_netcdf_file(file_path)
+        
+        logger.info(f"验证完成，结果: {validation_result.is_valid}")
+        
+        # 统计问题数量
+        critical_count = len([i for i in validation_result.issues if i.level == ValidationLevel.CRITICAL])
+        warning_count = len([i for i in validation_result.issues if i.level == ValidationLevel.WARNING])
+        info_count = len([i for i in validation_result.issues if i.level == ValidationLevel.INFO])
+        
+        # 格式化问题列表
+        issues = [
+            {
+                'level': issue.level.value,
+                'code': issue.code,
+                'message': issue.message,
+                'location': issue.location,
+                'suggestion': issue.suggestion
+            }
+            for issue in validation_result.issues
+        ]
+        
+        # 返回验证结果和文件路径
+        response = ValidationResponse(
+            is_valid=validation_result.is_valid,
+            cf_version=validation_result.cf_version,
+            critical_issues=critical_count,
+            warning_issues=warning_count,
+            info_issues=info_count,
+            issues=issues
+        )
+        
+        # 添加文件路径到响应中
+        response_dict = response.dict()
+        response_dict['file_path'] = file_path
+        response_dict['file_name'] = file.filename
+        
+        return response_dict
+        
+    except HTTPException:
+        # 重新抛出HTTPException
+        raise
     except Exception as e:
         logger.error(f"验证上传文件失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"验证上传文件失败: {str(e)}")
@@ -549,3 +570,184 @@ async def get_pending_files():
     except Exception as e:
         logger.error(f"获取待处理文件状态失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"获取待处理文件状态失败: {str(e)}")
+
+
+@router.post("/convert-and-extract")
+async def convert_file_and_extract_metadata(
+    file_path: str = Query(..., description="uploads目录中的文件路径"),
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    """
+    转换文件为CF标准格式并提取元数据保存到数据库
+    """
+    try:
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+        
+        logger.info(f"开始转换文件并提取元数据: {file_path}")
+        
+        # 设置最终输出路径 - 直接保存到Thredds数据目录
+        thredds_data_dir = os.path.join(os.getcwd(), "docker", "thredds", "data", "oceanenv", "standard")
+        os.makedirs(thredds_data_dir, exist_ok=True)
+        
+        # 确保processing目录存在（用于备份文件）
+        processing_dir = os.path.join(os.getcwd(), "data", "processing")
+        os.makedirs(processing_dir, exist_ok=True)
+        
+        filename = os.path.basename(file_path)
+        filename_without_ext = Path(filename).stem
+        
+        # 直接转换到最终的Thredds目录
+        output_path = os.path.join(thredds_data_dir, f"{filename_without_ext}_cf.nc")
+        
+        # 转换文件 - convert_netcdf_to_cf函数内部会：
+        # 1. 将原始文件备份到processing目录
+        # 2. 转换文件并直接保存到指定的output_path
+        # 3. 提取元数据并保存到数据库
+        convert_result = convert_netcdf_to_cf(
+            input_path=file_path,
+            output_path=output_path,
+            auto_fix=True,
+            backup=True
+        )
+        
+        if not convert_result['success']:
+            raise HTTPException(status_code=500, detail=f"文件转换失败: {convert_result['message']}")
+        
+        logger.info(f"文件已成功转换: {file_path} -> {output_path}")
+        
+        # 在后台任务中删除uploads文件
+        background_tasks.add_task(delete_upload_file, file_path)
+        
+        # 查询已保存的元数据记录ID
+        from app.db.session import SessionLocal
+        from app.db.models import NetCDFMetadata
+        
+        session = SessionLocal()
+        try:
+            # 查找已保存的元数据记录
+            metadata_record = session.query(NetCDFMetadata).filter(
+                NetCDFMetadata.file_path == output_path
+            ).first()
+            
+            metadata_id = metadata_record.id if metadata_record else None
+            
+            return {
+                "success": True,
+                "message": "文件转换成功，元数据已提取并保存",
+                "output_path": output_path,
+                "backup_path": convert_result.get('backup_path'),
+                "metadata_id": metadata_id,
+                "issues_fixed": convert_result.get('issues_fixed', []),
+                "remaining_issues": convert_result.get('remaining_issues', [])
+            }
+            
+        finally:
+            session.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"转换文件并提取元数据失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"转换文件并提取元数据失败: {str(e)}")
+
+
+@router.post("/extract-metadata")
+async def extract_metadata_only(
+    file_path: str = Query(..., description="uploads目录中的文件路径"),
+    background_tasks: BackgroundTasks = BackgroundTasks()
+):
+    """
+    直接从符合规范的文件中提取元数据保存到数据库
+    """
+    try:
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+        
+        logger.info(f"开始提取元数据: {file_path}")
+        
+        # 将文件保存到Thredds数据目录
+        thredds_data_dir = os.path.join(os.getcwd(), "docker", "thredds", "data", "oceanenv", "standard")
+        os.makedirs(thredds_data_dir, exist_ok=True)
+        
+        filename = os.path.basename(file_path)
+        standard_path = os.path.join(thredds_data_dir, filename)
+        
+        # 复制文件到standard目录
+        import shutil
+        shutil.copy2(file_path, standard_path)
+        
+        # 导入元数据提取器
+        from app.services.metadata_extractor import MetadataExtractor
+        
+        # 提取元数据
+        extractor = MetadataExtractor()
+        metadata = extractor.extract_metadata(standard_path, processing_status="standard")
+        
+        # 保存到数据库
+        from app.db.session import SessionLocal
+        from app.db.models import NetCDFMetadata
+        
+        # 创建数据库会话
+        session = SessionLocal()
+        
+        try:
+            # 创建元数据记录
+            metadata_record = NetCDFMetadata(**metadata)
+            session.add(metadata_record)
+            session.commit()
+            logger.info(f"元数据已保存到数据库: {standard_path}")
+            
+            # 在后台任务中删除uploads文件
+            background_tasks.add_task(delete_upload_file, file_path)
+            
+            return {
+                "success": True,
+                "message": "元数据提取成功并已保存",
+                "file_path": standard_path,
+                "metadata_id": metadata_record.id
+            }
+            
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"提取元数据失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"提取元数据失败: {str(e)}")
+
+
+@router.delete("/delete-upload")
+async def delete_upload_file_endpoint(
+    file_path: str = Query(..., description="要删除的文件路径")
+):
+    """
+    删除uploads目录中的文件
+    """
+    try:
+        if os.path.exists(file_path):
+            os.unlink(file_path)
+            logger.info(f"文件已删除: {file_path}")
+            return {"success": True, "message": "文件已删除"}
+        else:
+            return {"success": True, "message": "文件不存在或已删除"}
+            
+    except Exception as e:
+        logger.error(f"删除文件失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"删除文件失败: {str(e)}")
+
+
+def delete_upload_file(file_path: str):
+    """
+    后台任务：删除uploads文件
+    """
+    try:
+        if os.path.exists(file_path):
+            os.unlink(file_path)
+            logger.info(f"后台任务已删除文件: {file_path}")
+    except Exception as e:
+        logger.error(f"后台删除文件失败: {file_path}, 错误: {str(e)}")

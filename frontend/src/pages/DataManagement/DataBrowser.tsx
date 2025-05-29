@@ -136,8 +136,8 @@ const DataBrowser: React.FC = () => {
 
     return {
       id: metadata.id.toString(),
-      name: metadata.file_name,
-      description: metadata.summary || `NetCDF数据文件: ${metadata.file_name}`,
+      name: metadata.title || metadata.file_name,
+      description: metadata.summary || `NetCDF数据文件: ${metadata.title || metadata.file_name}`,
       source_type: sourceType,
       data_type: dataType,
       spatial_coverage: (
@@ -164,6 +164,7 @@ const DataBrowser: React.FC = () => {
       file_location: metadata.file_path,
       created_at: metadata.created_at,
       updated_at: metadata.updated_at,
+      institution: metadata.institution,
       // 扩展属性
       urlPath: metadata.file_path.replace(/^.*\/data\/oceanenv\//, 'oceanenv/'),
       opendapUrl: `http://localhost:8080/thredds/dodsC/${metadata.file_path.replace(/^.*\/data\//, '')}`,

@@ -57,6 +57,8 @@ export interface FileValidationResult {
   warning_issues: number;
   info_issues: number;
   issues: ValidationIssue[];
+  file_path?: string;
+  file_name?: string;
 }
 
 export interface ConversionResult {
@@ -143,7 +145,7 @@ class CFApiClient {
 
   // 获取目录结构
   async getDirectoryStructure(dataDir: string): Promise<DirectoryStructure> {
-    return this.request<DirectoryStructure>(`/cf/monitor/structure?data_dir=${encodeURIComponent(dataDir)}`);
+    return this.request<DirectoryStructure>(`/cf/directory/structure?data_dir=${encodeURIComponent(dataDir)}`);
   }
 
   // 扫描目录
@@ -165,7 +167,48 @@ class CFApiClient {
 
   // 验证上传的文件
   async validateUploadedFile(file: File): Promise<FileValidationResult> {
-    return this.uploadFile<FileValidationResult>('/cf/validate', file);
+    return this.uploadFile<FileValidationResult>('/cf/validate-upload', file);
+  }
+
+  // 转换文件并提取元数据保存到数据库
+  async convertFileAndExtractMetadata(filePath: string): Promise<{
+    success: boolean;
+    message: string;
+    output_path?: string;
+    metadata_id?: number;
+  }> {
+    return this.request<{
+      success: boolean;
+      message: string;
+      output_path?: string;
+      metadata_id?: number;
+    }>(`/cf/convert-and-extract?file_path=${encodeURIComponent(filePath)}`, {
+      method: 'POST',
+    });
+  }
+
+  // 直接提取元数据保存到数据库
+  async extractMetadataOnly(filePath: string): Promise<{
+    success: boolean;
+    message: string;
+    file_path?: string;
+    metadata_id?: number;
+  }> {
+    return this.request<{
+      success: boolean;
+      message: string;
+      file_path?: string;
+      metadata_id?: number;
+    }>(`/cf/extract-metadata?file_path=${encodeURIComponent(filePath)}`, {
+      method: 'POST',
+    });
+  }
+
+  // 删除uploads目录中的文件
+  async deleteUploadFile(filePath: string): Promise<{success: boolean; message: string}> {
+    return this.request<{success: boolean; message: string}>(`/cf/delete-upload?file_path=${encodeURIComponent(filePath)}`, {
+      method: 'DELETE',
+    });
   }
 
   // 转换上传的文件

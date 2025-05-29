@@ -25,6 +25,7 @@ export interface Dataset {
   file_location: string;
   created_at: string;
   updated_at: string;
+  institution?: string; // 机构/生产者信息
   urlPath?: string; // Thredds数据集特有的路径
   opendapUrl?: string; // OPeNDAP访问URL
   httpUrl?: string; // HTTP直接下载URL

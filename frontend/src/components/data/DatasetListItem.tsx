@@ -97,7 +97,7 @@ const DatasetListItem: React.FC<DatasetListItemProps> = ({ dataset, onView, onDe
           let region = '';
           
           // 尝试获取变量名
-          const varNames = {
+          const varNames: Record<string, string> = {
             'thetao': 'Temperature',
             'so': 'Salinity',
             'uo': 'Eastward Velocity',
@@ -265,7 +265,11 @@ const DatasetListItem: React.FC<DatasetListItemProps> = ({ dataset, onView, onDe
 
   // 生产者/创建者
   let producer = '-';
-  if (meta?.source_information) {
+  
+  // 优先使用dataset对象中的institution字段
+  if (dataset.institution) {
+    producer = dataset.institution;
+  } else if (meta?.source_information) {
     if (typeof meta.source_information === 'object' && meta.source_information !== null) {
       if (typeof meta.source_information.institution === 'string' && meta.source_information.institution) {
         producer = meta.source_information.institution;
