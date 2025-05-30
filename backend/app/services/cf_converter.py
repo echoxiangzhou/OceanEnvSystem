@@ -155,12 +155,23 @@ class CFConverter:
             
             # 备份原文件
             if backup:
-                backup_path = input_path + '.backup'
+                # 将备份文件保存到processing目录
+                processing_dir = os.path.join(os.getcwd(), "data", "processing")
+                os.makedirs(processing_dir, exist_ok=True)
+                
+                # 生成备份文件名
+                input_filename = os.path.basename(input_path)
+                backup_filename = f"backup_{input_filename}"
+                backup_path = os.path.join(processing_dir, backup_filename)
+                
                 import shutil
                 if not os.path.exists(backup_path):  # 避免重复备份
                     shutil.copy2(input_path, backup_path)
                     result['backup_path'] = backup_path
                     logger.info(f"已备份原文件至: {backup_path}")
+                else:
+                    result['backup_path'] = backup_path
+                    logger.info(f"备份文件已存在，跳过备份: {backup_path}")
             
             # 加载数据集
             logger.info(f"正在加载数据集: {input_path}")

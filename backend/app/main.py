@@ -57,7 +57,7 @@ def root():
         "version": settings.VERSION
     }
 
-from app.api.v1.endpoints import data_router, fusion_router, diagnostics_router, products_router, datasets_router, diagnostic_tasks_router, data_convert_router, opendap_client_router, metadata_router
+from app.api.v1.endpoints import data_router, fusion_router, diagnostics_router, products_router, datasets_router, diagnostic_tasks_router, data_convert_router, opendap_client_router, metadata_router, data_import_router
 # 使用完整版本的CF路由，包含监控功能
 from app.api.v1.endpoints import cf_router
 from app.algorithms.fusion import optimal_interpolation, kalman_filter
@@ -79,8 +79,16 @@ async def startup_event():
     except Exception as e:
         print(f"创建数据库表失败: {e}")
     
+    # 初始化数据导入相关数据
+    try:
+        from app.db.init_db import init_database
+        init_database()
+        print("数据导入系统初始化完成")
+    except Exception as e:
+        print(f"数据导入系统初始化失败: {e}")
+    
     # 初始化CF监控服务
-    data_dir = os.environ.get("DATA_DIR", "/Users/echo/codeProjects/OceanEnvSystem/OceanEnvSystem/backend/docker/thredds/data/oceanenv")
+    data_dir = os.environ.get("DATA_DIR", os.path.join(os.getcwd(), "docker", "thredds", "data", "oceanenv"))
     initialize_cf_monitor(data_dir)
 
 # 应用关闭事件
@@ -90,6 +98,7 @@ async def shutdown_event():
     cleanup_cf_monitor()
 
 app.include_router(data_router.router, prefix=settings.API_V1_STR, tags=["data"])
+app.include_router(data_import_router.router, prefix=settings.API_V1_STR, tags=["data-import-management"])
 app.include_router(optimal_interpolation.router, prefix=settings.API_V1_STR, tags=["fusion-optimal-interpolation"])
 app.include_router(kalman_filter.router, prefix=settings.API_V1_STR, tags=["fusion-kalman-filter"])
 app.include_router(fusion_router.router, prefix=settings.API_V1_STR, tags=["fusion"])

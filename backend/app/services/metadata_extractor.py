@@ -46,6 +46,14 @@ class MetadataExtractor:
                 # 全局属性
                 metadata.update(self._extract_global_attributes(ds))
                 
+                # 特殊处理：如果没有title，生成标准格式的title
+                if not metadata.get('title'):
+                    file_name = metadata.get('file_name', os.path.basename(file_path))
+                    # 去掉文件扩展名
+                    if file_name.endswith(('.nc', '.netcdf', '.nc4')):
+                        file_name = os.path.splitext(file_name)[0]
+                    metadata['title'] = f"Ocean Environmental Data-{file_name}"
+                
                 # 时空信息
                 metadata.update(self._extract_spatiotemporal_info(ds))
                 

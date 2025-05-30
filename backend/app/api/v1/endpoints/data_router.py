@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Path, Depends
+from fastapi import APIRouter, HTTPException, Query, Path, Depends, UploadFile, File, Form
 from typing import List, Dict, Optional, Any
 import os
 from fastapi.responses import FileResponse, JSONResponse
@@ -10,10 +10,23 @@ import time
 import logging
 from pathlib import Path as PathlibPath
 from datetime import datetime
+import uuid
+import aiofiles
+import shutil
 
 from app.core.json import custom_jsonable_encoder  # 导入我们的JSON编码器
+from app.schemas.dataset import (
+    FileUploadResponse, DataPreview, MetadataConfig, ValidationResult, 
+    ConversionResult, FileType, ParseStatus
+)
 
 from app.services.data_service import DataService, PROCESSED_DATA_ROOT, THREDDS_DATA_ROOT
+from app.db.session import get_db
+from app.services.data_import_service import DataImportService
+from app.schemas.dataset import DataImportRecordCreate, DataImportRecordUpdate
+from app.db.models import ImportStatusEnum, FileTypeEnum as DBFileTypeEnum, ValidationLevelEnum
+from sqlalchemy.orm import Session
+from app.services.parsers.csv_parser import parse_csv_file
 
 # Setup a logger
 logger = logging.getLogger(__name__)
@@ -909,3 +922,808 @@ def get_thredds_enhanced_metadata(
         return DataService._convert_numpy_types(metadata)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取Thredds增强元数据失败: {str(e)}")
+
+
+# ===============================================================================
+# 数据导入功能 API 端点
+# ===============================================================================
+
+# 临时文件存储配置
+UPLOADS_ROOT = os.path.join(os.getcwd(),  "data", "uploads", "raw")
+TEMP_FILES_CACHE = {}  # 临时文件信息缓存
+
+# 确保上传目录存在
+os.makedirs(UPLOADS_ROOT, exist_ok=True)
+
+def get_file_type(filename: str) -> FileType:
+    """根据文件扩展名确定文件类型"""
+    ext = filename.lower().split('.')[-1]
+    if ext == 'csv':
+        return FileType.CSV
+    elif ext in ['xlsx', 'xls']:
+        return FileType.EXCEL
+    elif ext == 'cnv':
+        return FileType.CNV
+    elif ext in ['nc', 'netcdf', 'nc4']:
+        return FileType.NETCDF
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}")
+
+def detect_file_encoding(file_path: str) -> str:
+    """检测文件编码"""
+    import chardet
+    try:
+        with open(file_path, 'rb') as f:
+            raw_data = f.read(10000)  # 读取前10KB用于检测
+            result = chardet.detect(raw_data)
+            return result.get('encoding', 'utf-8')
+    except:
+        return 'utf-8'
+
+def parse_csv_preview(file_path: str, temp_id: str) -> Dict[str, Any]:
+    """解析CSV文件预览（使用新的智能解析器）"""
+    try:
+        # 使用新的CSV解析器
+        return parse_csv_file(file_path, temp_id)
+    except Exception as e:
+        logger.error(f"CSV文件解析失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"解析CSV文件失败: {str(e)}")
+
+def parse_cnv_preview(file_path: str, temp_id: str) -> Dict[str, Any]:
+    """解析CNV文件预览（使用智能CNV解析器）"""
+    try:
+        from app.services.parsers.cnv_parser import parse_cnv_file
+        return parse_cnv_file(file_path, temp_id)
+    except Exception as e:
+        logger.error(f"CNV文件解析失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"解析CNV文件失败: {str(e)}")
+
+@router.post("/import/upload", response_model=FileUploadResponse, summary="文件上传")
+async def upload_data_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    上传数据文件进行导入处理
+    支持格式：CSV、Excel、CNV、NetCDF
+    """
+    try:
+        # 检查文件名
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="文件名不能为空")
+            
+        # 检查文件大小（限制100MB）
+        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+        content = await file.read()
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail="文件大小超过限制（100MB）")
+            
+        # 确定文件类型
+        file_type = get_file_type(file.filename)
+        
+        # 生成临时文件ID
+        temp_id = str(uuid.uuid4())
+        
+        # 保存文件
+        file_path = os.path.join(UPLOADS_ROOT, f"{temp_id}_{file.filename}")
+        async with aiofiles.open(file_path, 'wb') as f:
+            await f.write(content)
+            
+        # 初步解析检查
+        parse_status = ParseStatus.SUCCESS
+        parse_message = "文件上传成功"
+        
+        try:
+            if file_type == FileType.CSV:
+                # 简单检查CSV格式
+                import pandas as pd
+                encoding = detect_file_encoding(file_path)
+                df = pd.read_csv(file_path, encoding=encoding, nrows=5)
+                if len(df.columns) == 0:
+                    parse_status = ParseStatus.ERROR
+                    parse_message = "CSV文件格式无效"
+            elif file_type == FileType.CNV:
+                # 检查CNV文件格式
+                with open(file_path, 'r', encoding='latin-1', errors='ignore') as f:
+                    lines = f.readlines()
+                    # 检查是否有CNV文件的特征标记
+                    has_header = any(line.startswith('*') for line in lines[:20])
+                    has_end_marker = any(line.strip() == '*END*' for line in lines)
+                    if not (has_header or has_end_marker):
+                        parse_status = ParseStatus.WARNING
+                        parse_message = "文件可能不是标准CNV格式，但将尝试解析"
+            elif file_type == FileType.NETCDF:
+                # 检查NetCDF文件
+                import xarray as xr
+                ds = xr.open_dataset(file_path)
+                ds.close()
+        except Exception as e:
+            parse_status = ParseStatus.WARNING
+            parse_message = f"文件上传成功，但解析时遇到警告: {str(e)}"
+            
+        # 创建数据库记录
+        record_data = DataImportRecordCreate(
+            temp_id=temp_id,
+            original_filename=file.filename,
+            file_type=DBFileTypeEnum(file_type),
+            file_size=len(content),
+            import_status=ImportStatusEnum.UPLOADED,
+            progress_percentage=10.0,
+            user_id="default",  # 可以从认证系统获取
+            user_name="数据导入用户"
+        )
+        
+        db_record = DataImportService.create_import_record(db, record_data, file_path)
+        
+        # 缓存文件信息（保持向后兼容）
+        file_info = {
+            "temp_id": temp_id,
+            "filename": file.filename,
+            "file_type": file_type,
+            "file_size": len(content),
+            "file_path": file_path,
+            "upload_time": datetime.now(),
+            "parse_status": parse_status,
+            "parse_message": parse_message,
+            "db_record_id": db_record.id
+        }
+        
+        TEMP_FILES_CACHE[temp_id] = file_info
+        
+        logger.info(f"文件上传成功: {file.filename}, temp_id: {temp_id}, db_id: {db_record.id}")
+        
+        return FileUploadResponse(**file_info)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"文件上传失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"文件上传失败: {str(e)}")
+
+@router.get("/import/preview/{temp_id}", response_model=DataPreview, summary="获取数据预览")
+async def get_data_preview(temp_id: str = Path(..., description="临时文件标识"), db: Session = Depends(get_db)):
+    """
+    获取上传文件的数据预览和结构信息
+    """
+    try:
+        # 更新数据库状态
+        DataImportService.update_import_record(
+            db, temp_id, 
+            DataImportRecordUpdate(
+                import_status=ImportStatusEnum.PARSING,
+                progress_percentage=20.0
+            )
+        )
+        
+        # 检查临时文件是否存在
+        if temp_id not in TEMP_FILES_CACHE:
+            raise HTTPException(status_code=404, detail="临时文件不存在")
+            
+        file_info = TEMP_FILES_CACHE[temp_id]
+        file_path = file_info["file_path"]
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="文件已被删除")
+            
+        # 根据文件类型进行预览
+        if file_info["file_type"] == FileType.CSV:
+            preview_data = parse_csv_preview(file_path, temp_id)
+        elif file_info["file_type"] == FileType.CNV:
+            preview_data = parse_cnv_preview(file_path, temp_id)
+        else:
+            # 其他文件类型的预览功能后续实现
+            raise HTTPException(status_code=501, detail=f"暂不支持 {file_info['file_type']} 格式的预览")
+        
+        # 更新数据库记录
+        DataImportService.update_import_record(
+            db, temp_id,
+            DataImportRecordUpdate(
+                import_status=ImportStatusEnum.PARSED,
+                progress_percentage=30.0,
+                parse_config=preview_data["parsing_config"],
+                column_count=preview_data["column_count"],
+                row_count=preview_data["row_count"]
+            )
+        )
+        
+        # 创建解析操作记录
+        db_record = DataImportService.get_import_record(db, temp_id)
+        if db_record:
+            file_type_name = file_info["file_type"].upper() if hasattr(file_info["file_type"], 'upper') else str(file_info["file_type"]).upper()
+            DataImportService.create_file_operation(
+                db, db_record.id, "parse", "completed",
+                input_path=file_path,
+                success=True,
+                operation_log=f"{file_type_name}文件解析完成，共{preview_data['row_count']}行{preview_data['column_count']}列",
+                operation_metadata={"parsing_config": preview_data["parsing_config"]}
+            )
+            
+        return DataPreview(**preview_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取数据预览失败: {str(e)}", exc_info=True)
+        # 更新错误状态
+        try:
+            DataImportService.update_import_record(
+                db, temp_id,
+                DataImportRecordUpdate(
+                    import_status=ImportStatusEnum.FAILED,
+                    error_message=f"数据预览失败: {str(e)}"
+                )
+            )
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"获取数据预览失败: {str(e)}")
+
+@router.get("/import/metadata/{temp_id}", summary="获取元数据配置")
+async def get_metadata_config(temp_id: str = Path(..., description="临时文件标识"), db: Session = Depends(get_db)):
+    """
+    获取文件的元数据配置，包括智能建议的CF标准属性
+    """
+    try:
+        # 检查临时文件是否存在
+        if temp_id not in TEMP_FILES_CACHE:
+            raise HTTPException(status_code=404, detail="临时文件不存在")
+            
+        # 首先获取数据预览（包含变量建议）
+        preview_data = await get_data_preview(temp_id, db)
+        
+        # 构建变量属性配置
+        variables = {}
+        coordinate_variables = {}
+        
+        for col in preview_data.columns:
+            var_attr = {
+                "standard_name": col.suggested_cf_name,
+                "long_name": col.name,
+                "units": col.suggested_units,
+                "description": f"Variable: {col.name}"
+            }
+            
+            # 如果是坐标变量，特殊处理
+            if col.suggested_cf_name in ["time", "latitude", "longitude", "depth"]:
+                coordinate_variables[col.suggested_cf_name] = col.name
+                
+            variables[col.name] = var_attr
+            
+        # 生成全局属性建议
+        file_info = TEMP_FILES_CACHE[temp_id]
+        
+        # 获取用户偏好设置
+        user_preference = DataImportService.get_user_preference(db, "default")
+        default_attrs = user_preference.default_global_attributes if user_preference else {}
+        
+        global_attributes = {
+            "title": f"Imported data from {file_info['filename']}",
+            "institution": default_attrs.get("institution", "Ocean Environment System"),
+            "source": f"File import: {file_info['filename']}",
+            "history": f"Imported on {datetime.now().isoformat()}",
+            "summary": f"Data imported from {file_info['file_type']} file",
+            "creator_name": default_attrs.get("creator_name", "Ocean Environment System User"),
+            "creator_institution": default_attrs.get("creator_institution", "Ocean Environment System")
+        }
+        
+        metadata_config = {
+            "temp_id": temp_id,
+            "variables": variables,
+            "global_attributes": global_attributes,
+            "coordinate_variables": coordinate_variables
+        }
+        
+        # 更新数据库记录
+        DataImportService.update_import_record(
+            db, temp_id,
+            DataImportRecordUpdate(metadata_config=metadata_config)
+        )
+        
+        return metadata_config
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取元数据配置失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取元数据配置失败: {str(e)}")
+
+@router.put("/import/metadata/{temp_id}", summary="更新元数据配置")
+async def update_metadata_config(
+    temp_id: str = Path(..., description="临时文件标识"),
+    metadata_config: MetadataConfig = None,
+    db: Session = Depends(get_db)
+):
+    """
+    更新文件的元数据配置
+    """
+    try:
+        # 检查临时文件是否存在
+        if temp_id not in TEMP_FILES_CACHE:
+            raise HTTPException(status_code=404, detail="临时文件不存在")
+            
+        # 更新缓存中的元数据配置
+        TEMP_FILES_CACHE[temp_id]["metadata_config"] = metadata_config.dict()
+        
+        # 更新数据库记录
+        DataImportService.update_import_record(
+            db, temp_id,
+            DataImportRecordUpdate(metadata_config=metadata_config.dict())
+        )
+        
+        logger.info(f"元数据配置已更新: temp_id={temp_id}")
+        
+        return {"message": "元数据配置更新成功", "temp_id": temp_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新元数据配置失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"更新元数据配置失败: {str(e)}")
+
+@router.post("/import/validate/{temp_id}", response_model=ValidationResult, summary="验证数据")
+async def validate_data(temp_id: str = Path(..., description="临时文件标识"), db: Session = Depends(get_db)):
+    """
+    验证数据是否符合CF Convention标准
+    """
+    try:
+        # 更新状态
+        DataImportService.update_import_record(
+            db, temp_id,
+            DataImportRecordUpdate(
+                import_status=ImportStatusEnum.VALIDATING,
+                progress_percentage=50.0
+            )
+        )
+        
+        # 检查临时文件是否存在
+        if temp_id not in TEMP_FILES_CACHE:
+            raise HTTPException(status_code=404, detail="临时文件不存在")
+            
+        file_info = TEMP_FILES_CACHE[temp_id]
+        
+        # 获取元数据配置
+        metadata_config = file_info.get("metadata_config", {})
+        
+        # 简单的验证逻辑（后续可扩展为更完整的CF验证）
+        issues = []
+        error_count = 0
+        warning_count = 0
+        info_count = 0
+        
+        # 获取数据库记录
+        db_record = DataImportService.get_import_record(db, temp_id)
+        
+        # 检查必需的全局属性
+        global_attrs = metadata_config.get("global_attributes", {})
+        required_attrs = ["title", "institution", "source", "history"]
+        
+        for attr in required_attrs:
+            if not global_attrs.get(attr):
+                issue_data = {
+                    "level": "warning",
+                    "code": f"MISSING_GLOBAL_ATTR_{attr.upper()}",
+                    "message": f"缺少推荐的全局属性: {attr}",
+                    "location": "global_attributes",
+                    "suggestion": f"建议添加 {attr} 属性"
+                }
+                issues.append(issue_data)
+                warning_count += 1
+                
+                # 创建验证问题记录
+                if db_record:
+                    DataImportService.create_validation_issue(
+                        db, db_record.id,
+                        ValidationLevelEnum.WARNING,
+                        f"MISSING_GLOBAL_ATTR_{attr.upper()}",
+                        f"缺少推荐的全局属性: {attr}",
+                        location="global_attributes",
+                        suggestion=f"建议添加 {attr} 属性",
+                        auto_fixable=True
+                    )
+                
+        # 检查变量属性
+        variables = metadata_config.get("variables", {})
+        for var_name, var_attrs in variables.items():
+            if not var_attrs.get("units"):
+                issue_data = {
+                    "level": "warning", 
+                    "code": "MISSING_UNITS",
+                    "message": f"变量 {var_name} 缺少单位属性",
+                    "location": f"variables.{var_name}",
+                    "suggestion": "建议为所有变量指定单位"
+                }
+                issues.append(issue_data)
+                warning_count += 1
+                
+                # 创建验证问题记录
+                if db_record:
+                    DataImportService.create_validation_issue(
+                        db, db_record.id,
+                        ValidationLevelEnum.WARNING,
+                        "MISSING_UNITS",
+                        f"变量 {var_name} 缺少单位属性",
+                        location=f"variables.{var_name}",
+                        suggestion="建议为所有变量指定单位",
+                        auto_fixable=True
+                    )
+                
+            if not var_attrs.get("standard_name"):
+                issue_data = {
+                    "level": "info",
+                    "code": "MISSING_STANDARD_NAME", 
+                    "message": f"变量 {var_name} 缺少CF标准名称",
+                    "location": f"variables.{var_name}",
+                    "suggestion": "建议使用CF标准变量名"
+                }
+                issues.append(issue_data)
+                info_count += 1
+                
+                # 创建验证问题记录
+                if db_record:
+                    DataImportService.create_validation_issue(
+                        db, db_record.id,
+                        ValidationLevelEnum.INFO,
+                        "MISSING_STANDARD_NAME",
+                        f"变量 {var_name} 缺少CF标准名称",
+                        location=f"variables.{var_name}",
+                        suggestion="建议使用CF标准变量名",
+                        auto_fixable=True
+                    )
+                
+        # 计算合规性评分
+        total_checks = len(required_attrs) + len(variables) * 2  # 简化的检查项数量
+        passed_checks = total_checks - len(issues)
+        compliance_score = (passed_checks / total_checks) * 100 if total_checks > 0 else 100
+        
+        # 判断是否通过验证（无错误即为通过）
+        is_valid = error_count == 0
+        
+        result = {
+            "temp_id": temp_id,
+            "is_valid": is_valid,
+            "cf_version": "CF-1.8",
+            "total_issues": len(issues),
+            "error_count": error_count,
+            "warning_count": warning_count, 
+            "info_count": info_count,
+            "issues": issues,
+            "compliance_score": compliance_score
+        }
+        
+        # 更新数据库记录
+        DataImportService.update_import_record(
+            db, temp_id,
+            DataImportRecordUpdate(
+                import_status=ImportStatusEnum.VALIDATED,
+                progress_percentage=70.0,
+                validation_result=result,
+                is_cf_compliant=is_valid,
+                compliance_score=compliance_score
+            )
+        )
+        
+        # 创建验证操作记录
+        if db_record:
+            DataImportService.create_file_operation(
+                db, db_record.id, "validate", "completed",
+                success=True,
+                operation_log=f"CF验证完成，合规性评分: {compliance_score:.1f}%",
+                operation_metadata={"validation_result": result}
+            )
+        
+        logger.info(f"数据验证完成: temp_id={temp_id}, is_valid={is_valid}, score={compliance_score:.1f}")
+        
+        return ValidationResult(**result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"数据验证失败: {str(e)}", exc_info=True)
+        # 更新错误状态
+        try:
+            DataImportService.update_import_record(
+                db, temp_id,
+                DataImportRecordUpdate(
+                    import_status=ImportStatusEnum.FAILED,
+                    error_message=f"数据验证失败: {str(e)}"
+                )
+            )
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"数据验证失败: {str(e)}")
+
+@router.post("/import/convert/{temp_id}", response_model=ConversionResult, summary="转换为NetCDF")
+async def convert_to_netcdf(temp_id: str = Path(..., description="临时文件标识"), db: Session = Depends(get_db)):
+    """
+    将数据文件转换为符合CF Convention的NetCDF格式
+    """
+    try:
+        # 更新状态
+        DataImportService.update_import_record(
+            db, temp_id,
+            DataImportRecordUpdate(
+                import_status=ImportStatusEnum.CONVERTING,
+                progress_percentage=80.0
+            )
+        )
+        
+        # 从数据库获取导入记录
+        db_record = DataImportService.get_import_record(db, temp_id)
+        if not db_record:
+            raise HTTPException(status_code=404, detail="导入记录不存在")
+        
+        file_path = db_record.upload_path
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="源文件不存在")
+        
+        # 检查元数据配置（从数据库获取）
+        metadata_config = db_record.metadata_config
+        if not metadata_config:
+            raise HTTPException(status_code=400, detail="请先配置元数据")
+            
+        # 准备输出路径
+        output_dir = os.path.join(os.getcwd(), "docker", "thredds", "data", "oceanenv", "standard")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        output_filename = f"{temp_id}_{db_record.original_filename.rsplit('.', 1)[0]}_cf.nc"
+        output_path = os.path.join(output_dir, output_filename)
+        
+        start_time = time.time()
+        
+        # 根据文件类型进行转换
+        if db_record.file_type == DBFileTypeEnum.CSV:
+            await convert_csv_to_netcdf(file_path, output_path, metadata_config)
+        elif db_record.file_type == DBFileTypeEnum.CNV:
+            await convert_cnv_to_netcdf(file_path, output_path, metadata_config)
+        else:
+            raise HTTPException(status_code=501, detail=f"暂不支持 {db_record.file_type} 格式的转换")
+            
+        processing_time = time.time() - start_time
+        
+        # 检查输出文件
+        if not os.path.exists(output_path):
+            raise HTTPException(status_code=500, detail="NetCDF文件生成失败")
+            
+        file_size = os.path.getsize(output_path)
+        
+        # 生成访问URL
+        relative_path = os.path.relpath(output_path, os.path.join(os.getcwd(),  "docker", "thredds", "data"))
+        tds_url = f"{THREDDS_SERVER_URL}/thredds/fileServer/{relative_path}"
+        opendap_url = f"{THREDDS_SERVER_URL}/thredds/dodsC/{relative_path}"
+        
+        result = {
+            "temp_id": temp_id,
+            "success": True,
+            "output_path": output_path,
+            "tds_url": tds_url,
+            "opendap_url": opendap_url,
+            "file_size": file_size,
+            "processing_time": processing_time,
+            "message": "NetCDF文件转换成功"
+        }
+        
+        # 更新数据库记录
+        DataImportService.update_import_record(
+            db, temp_id,
+            DataImportRecordUpdate(
+                import_status=ImportStatusEnum.COMPLETED,
+                progress_percentage=100.0,
+                output_file_path=output_path,
+                tds_url=tds_url,
+                opendap_url=opendap_url,
+                conversion_time=processing_time
+            )
+        )
+        
+        # 提取并保存NetCDF元数据到netcdf_metadata表
+        try:
+            from app.services.metadata_extractor import MetadataExtractor
+            
+            metadata_extractor = MetadataExtractor()
+            
+            # 提取NetCDF文件元数据
+            netcdf_metadata = metadata_extractor.extract_metadata(
+                output_path, 
+                processing_status="standard"
+            )
+            
+            # 关联到导入记录
+            netcdf_metadata["import_record_id"] = db_record.id
+            
+            # 保存到数据库
+            metadata_record = metadata_extractor.save_metadata_to_db(
+                netcdf_metadata, 
+                db, 
+                force_update=True
+            )
+            
+            logger.info(f"NetCDF元数据已保存到数据库: metadata_id={metadata_record.id}, file={output_path}")
+            
+            # 在返回结果中添加元数据记录信息
+            result["metadata_record_id"] = metadata_record.id
+            result["metadata_extracted"] = True
+            
+        except Exception as e:
+            logger.warning(f"NetCDF元数据提取失败，但转换已成功: {str(e)}")
+            result["metadata_extracted"] = False
+            result["metadata_error"] = str(e)
+        
+        # 创建转换操作记录
+        DataImportService.create_file_operation(
+            db, db_record.id, "convert", "completed",
+            input_path=file_path,
+            output_path=output_path,
+            success=True,
+            operation_log=f"NetCDF转换完成，文件大小: {file_size} 字节",
+            operation_metadata={"conversion_result": result}
+        )
+        
+        logger.info(f"NetCDF转换成功: temp_id={temp_id}, output={output_path}")
+        
+        # 清理临时文件缓存（如果存在）
+        try:
+            if temp_id in TEMP_FILES_CACHE:
+                del TEMP_FILES_CACHE[temp_id]
+        except:
+            pass
+            
+        return ConversionResult(**result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"NetCDF转换失败: {str(e)}", exc_info=True)
+        # 更新错误状态
+        try:
+            DataImportService.update_import_record(
+                db, temp_id,
+                DataImportRecordUpdate(
+                    import_status=ImportStatusEnum.FAILED,
+                    error_message=f"NetCDF转换失败: {str(e)}"
+                )
+            )
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"NetCDF转换失败: {str(e)}")
+
+async def convert_csv_to_netcdf(csv_path: str, output_path: str, metadata_config: Dict[str, Any]):
+    """
+    将CSV文件转换为NetCDF格式
+    """
+    import pandas as pd
+    import xarray as xr
+    import numpy as np
+    
+    try:
+        # 读取CSV数据
+        encoding = detect_file_encoding(csv_path)
+        df = pd.read_csv(csv_path, encoding=encoding)
+        
+        # 获取配置
+        variables_config = metadata_config.get("variables", {})
+        global_attrs = metadata_config.get("global_attributes", {})
+        coord_vars = metadata_config.get("coordinate_variables", {})
+        
+        # 创建xarray数据集
+        data_vars = {}
+        coords = {}
+        
+        for col in df.columns:
+            var_config = variables_config.get(col, {})
+            data = df[col].values
+            
+            # 处理缺失值
+            if data.dtype == 'object':
+                # 尝试转换为数值类型
+                try:
+                    data = pd.to_numeric(data, errors='coerce').values
+                except:
+                    pass
+                    
+            # 如果是坐标变量
+            if col in coord_vars.values():
+                coords[col] = data
+            else:
+                # 创建数据变量的属性
+                attrs = {}
+                if var_config.get("standard_name"):
+                    attrs["standard_name"] = var_config["standard_name"]
+                if var_config.get("long_name"):
+                    attrs["long_name"] = var_config["long_name"]
+                if var_config.get("units"):
+                    attrs["units"] = var_config["units"]
+                if var_config.get("description"):
+                    attrs["description"] = var_config["description"]
+                    
+                data_vars[col] = (["index"], data, attrs)
+                
+        # 创建数据集
+        ds = xr.Dataset(data_vars, coords=coords)
+        
+        # 添加全局属性
+        for attr, value in global_attrs.items():
+            if value:
+                ds.attrs[attr] = value
+                
+        # 添加CF Convention相关属性
+        ds.attrs["Conventions"] = "CF-1.8"
+        ds.attrs["featureType"] = "timeSeries"  # 默认类型，可根据实际数据调整
+        
+        # 保存为NetCDF文件
+        ds.to_netcdf(output_path, format='NETCDF4', engine='netcdf4')
+        ds.close()
+        
+        logger.info(f"CSV转NetCDF完成: {csv_path} -> {output_path}")
+        
+    except Exception as e:
+        logger.error(f"CSV转NetCDF失败: {str(e)}", exc_info=True)
+        raise
+
+async def convert_cnv_to_netcdf(cnv_path: str, output_path: str, metadata_config: Dict[str, Any]):
+    """
+    将CNV文件转换为NetCDF格式
+    """
+    import pandas as pd
+    import xarray as xr
+    import numpy as np
+    
+    try:
+        # 读取CNV数据
+        encoding = detect_file_encoding(cnv_path)
+        df = pd.read_csv(cnv_path, encoding=encoding)
+        
+        # 获取配置
+        variables_config = metadata_config.get("variables", {})
+        global_attrs = metadata_config.get("global_attributes", {})
+        coord_vars = metadata_config.get("coordinate_variables", {})
+        
+        # 创建xarray数据集
+        data_vars = {}
+        coords = {}
+        
+        for col in df.columns:
+            var_config = variables_config.get(col, {})
+            data = df[col].values
+            
+            # 处理缺失值
+            if data.dtype == 'object':
+                # 尝试转换为数值类型
+                try:
+                    data = pd.to_numeric(data, errors='coerce').values
+                except:
+                    pass
+                    
+            # 如果是坐标变量
+            if col in coord_vars.values():
+                coords[col] = data
+            else:
+                # 创建数据变量的属性
+                attrs = {}
+                if var_config.get("standard_name"):
+                    attrs["standard_name"] = var_config["standard_name"]
+                if var_config.get("long_name"):
+                    attrs["long_name"] = var_config["long_name"]
+                if var_config.get("units"):
+                    attrs["units"] = var_config["units"]
+                if var_config.get("description"):
+                    attrs["description"] = var_config["description"]
+                    
+                data_vars[col] = (["index"], data, attrs)
+                
+        # 创建数据集
+        ds = xr.Dataset(data_vars, coords=coords)
+        
+        # 添加全局属性
+        for attr, value in global_attrs.items():
+            if value:
+                ds.attrs[attr] = value
+                
+        # 添加CF Convention相关属性
+        ds.attrs["Conventions"] = "CF-1.8"
+        ds.attrs["featureType"] = "timeSeries"  # 默认类型，可根据实际数据调整
+        
+        # 保存为NetCDF文件
+        ds.to_netcdf(output_path, format='NETCDF4', engine='netcdf4')
+        ds.close()
+        
+        logger.info(f"CNV转NetCDF完成: {cnv_path} -> {output_path}")
+        
+    except Exception as e:
+        logger.error(f"CNV转NetCDF失败: {str(e)}", exc_info=True)
+        raise
