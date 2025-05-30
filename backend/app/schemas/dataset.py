@@ -73,11 +73,13 @@ class FileUploadResponse(BaseModel):
     """文件上传响应"""
     temp_id: str = Field(..., description="临时文件标识")
     filename: str = Field(..., description="原始文件名")
-    file_type: FileType = Field(..., description="文件类型")
+    file_type: str = Field(..., description="文件类型")
     file_size: int = Field(..., description="文件大小（字节）")
-    upload_time: datetime = Field(..., description="上传时间")
-    parse_status: ParseStatus = Field(..., description="解析状态")
-    parse_message: Optional[str] = Field(None, description="解析信息")
+    file_path: str = Field(..., description="文件存储路径")
+    upload_time: str = Field(..., description="上传时间")
+    parse_status: str = Field(..., description="解析状态")
+    parse_message: str = Field(..., description="解析信息")
+    db_record_id: int = Field(..., description="数据库记录ID")
 
 class ColumnInfo(BaseModel):
     """列信息"""

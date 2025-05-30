@@ -2,12 +2,13 @@
 CSV文件智能解析器
 
 实现功能：
-- 自动编码检测（UTF-8、GBK、ISO-8859-1等）
-- 智能分隔符识别（逗号、分号、制表符等）
-- 自动头部行数判断
-- 数据类型推断
+- 自动检测文件编码（UTF-8、GBK、ISO-8859-1等）
+- 智能识别分隔符（逗号、分号、制表符等）
+- 自动判断头部行数和数据起始行
+- 数据类型推断（数值、日期、字符串）
 - 缺失值和异常值检测
-- 海洋学变量智能识别
+- CF标准变量识别和建议
+- 全局属性智能生成
 """
 
 import pandas as pd
@@ -18,6 +19,11 @@ import re
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 import logging
+from sqlalchemy.orm import Session
+
+# 导入新的CF变量识别引擎和全局属性生成器
+from ..cf_standards.variable_identifier import CFVariableIdentifier, CFVariableSuggestion
+from ..cf_standards.global_attributes import GlobalAttributeGenerator, GlobalAttributeSuggestion
 
 logger = logging.getLogger(__name__)
 
@@ -31,35 +37,32 @@ class CSVParser:
     # 支持的分隔符列表
     SEPARATORS = [',', ';', '\t', '|', ' ']
     
-    # 海洋学变量映射表
+    # 保留原有的海洋学变量映射表作为备份（已移至CFVariableIdentifier）
+    # 这里保留是为了向后兼容，但实际使用时会优先使用CFVariableIdentifier
     OCEANOGRAPHIC_VARIABLES = {
-        # 温度相关
+        # 基础变量映射 - 已整合到CFVariableIdentifier中
         'temp': {'standard_name': 'sea_water_temperature', 'units': 'degree_C', 'confidence': 0.8},
         'temperature': {'standard_name': 'sea_water_temperature', 'units': 'degree_C', 'confidence': 0.9},
         'water_temp': {'standard_name': 'sea_water_temperature', 'units': 'degree_C', 'confidence': 0.85},
         '温度': {'standard_name': 'sea_water_temperature', 'units': 'degree_C', 'confidence': 0.8},
         'sst': {'standard_name': 'sea_surface_temperature', 'units': 'degree_C', 'confidence': 0.9},
         
-        # 盐度相关
         'sal': {'standard_name': 'sea_water_salinity', 'units': '1', 'confidence': 0.8},
         'salinity': {'standard_name': 'sea_water_salinity', 'units': '1', 'confidence': 0.9},
         'salt': {'standard_name': 'sea_water_salinity', 'units': '1', 'confidence': 0.7},
         '盐度': {'standard_name': 'sea_water_salinity', 'units': '1', 'confidence': 0.8},
         'psu': {'standard_name': 'sea_water_salinity', 'units': '1', 'confidence': 0.85},
         
-        # 深度相关
         'depth': {'standard_name': 'depth', 'units': 'm', 'confidence': 0.9},
         'dep': {'standard_name': 'depth', 'units': 'm', 'confidence': 0.8},
         '深度': {'standard_name': 'depth', 'units': 'm', 'confidence': 0.9},
         'z': {'standard_name': 'depth', 'units': 'm', 'confidence': 0.7},
         
-        # 压力相关
         'pressure': {'standard_name': 'sea_water_pressure', 'units': 'dbar', 'confidence': 0.9},
         'press': {'standard_name': 'sea_water_pressure', 'units': 'dbar', 'confidence': 0.8},
         'pres': {'standard_name': 'sea_water_pressure', 'units': 'dbar', 'confidence': 0.8},
         '压力': {'standard_name': 'sea_water_pressure', 'units': 'dbar', 'confidence': 0.8},
         
-        # 坐标变量
         'lat': {'standard_name': 'latitude', 'units': 'degrees_north', 'confidence': 0.9},
         'latitude': {'standard_name': 'latitude', 'units': 'degrees_north', 'confidence': 0.95},
         '纬度': {'standard_name': 'latitude', 'units': 'degrees_north', 'confidence': 0.9},
@@ -67,13 +70,11 @@ class CSVParser:
         'longitude': {'standard_name': 'longitude', 'units': 'degrees_east', 'confidence': 0.95},
         '经度': {'standard_name': 'longitude', 'units': 'degrees_east', 'confidence': 0.9},
         
-        # 时间变量
         'time': {'standard_name': 'time', 'units': None, 'confidence': 0.9},
         'datetime': {'standard_name': 'time', 'units': None, 'confidence': 0.9},
         'date': {'standard_name': 'time', 'units': None, 'confidence': 0.8},
         '时间': {'standard_name': 'time', 'units': None, 'confidence': 0.9},
         
-        # 其他海洋学变量
         'sla': {'standard_name': 'sea_surface_height_above_sea_level', 'units': 'm', 'confidence': 0.9},
         'ssh': {'standard_name': 'sea_surface_height', 'units': 'm', 'confidence': 0.9},
         'u': {'standard_name': 'eastward_sea_water_velocity', 'units': 'm s-1', 'confidence': 0.7},
@@ -82,8 +83,18 @@ class CSVParser:
         'chlorophyll': {'standard_name': 'mass_concentration_of_chlorophyll_in_sea_water', 'units': 'mg m-3', 'confidence': 0.9},
     }
     
-    def __init__(self):
+    def __init__(self, db: Optional[Session] = None):
+        """
+        初始化CSV解析器
+        
+        Args:
+            db: 数据库会话，用于CF标准名称查询
+        """
         self.encoding_cache = {}
+        # 初始化CF变量识别引擎
+        self.cf_identifier = CFVariableIdentifier(db=db)
+        # 初始化全局属性生成器
+        self.global_attr_generator = GlobalAttributeGenerator()
     
     def detect_encoding(self, file_path: str, sample_size: int = 8192) -> str:
         """
@@ -291,44 +302,80 @@ class CSVParser:
         
         return type_mapping
     
-    def suggest_cf_variables(self, column_name: str) -> Dict[str, Any]:
+    def suggest_cf_variables(self, column_name: str, 
+                           description: str = "", 
+                           units: str = "", 
+                           sample_values: Optional[List[Any]] = None,
+                           column_index: Optional[int] = None) -> Dict[str, Any]:
         """
-        基于列名建议CF标准变量
+        基于列名建议CF标准变量（使用新的CF识别引擎）
         
         Args:
             column_name: 列名
+            description: 变量描述
+            units: 变量单位
+            sample_values: 示例值
+            column_index: 列索引
             
         Returns:
             CF变量建议信息
         """
-        col_lower = column_name.lower().strip()
+        try:
+            # 使用新的CF变量识别引擎
+            suggestion = self.cf_identifier.identify_variable(
+                var_name=column_name,
+                description=description,
+                units=units,
+                sample_values=sample_values,
+                column_index=column_index
+            )
+            
+            # 转换为原有格式以保持兼容性
+            return {
+                'standard_name': suggestion.standard_name,
+                'units': suggestion.units,
+                'confidence': suggestion.confidence,
+                'long_name': suggestion.long_name,
+                'valid_range': suggestion.valid_range,
+                'axis': suggestion.axis,
+                'positive': suggestion.positive,
+                'category': suggestion.category,
+                'match_type': suggestion.match_type,
+                'description': suggestion.description
+            }
         
-        # 直接匹配
-        if col_lower in self.OCEANOGRAPHIC_VARIABLES:
-            return self.OCEANOGRAPHIC_VARIABLES[col_lower].copy()
-        
-        # 模糊匹配
-        best_match = None
-        best_confidence = 0.0
-        
-        for var_name, var_info in self.OCEANOGRAPHIC_VARIABLES.items():
-            # 检查是否包含关键字
-            if var_name in col_lower or col_lower in var_name:
-                confidence = var_info['confidence'] * 0.8  # 模糊匹配降低置信度
-                if confidence > best_confidence:
-                    best_confidence = confidence
-                    best_match = var_info.copy()
-                    best_match['confidence'] = confidence
-        
-        if best_match:
-            return best_match
-        
-        # 无匹配时返回默认值
-        return {
-            'standard_name': None,
-            'units': None,
-            'confidence': 0.0
-        }
+        except Exception as e:
+            logger.warning(f"CF变量识别失败，使用备用方法: {e}")
+            
+            # 备用方法：使用原有的简单映射
+            col_lower = column_name.lower().strip()
+            
+            # 直接匹配
+            if col_lower in self.OCEANOGRAPHIC_VARIABLES:
+                return self.OCEANOGRAPHIC_VARIABLES[col_lower].copy()
+            
+            # 模糊匹配
+            best_match = None
+            best_confidence = 0.0
+            
+            for var_name, var_info in self.OCEANOGRAPHIC_VARIABLES.items():
+                # 检查是否包含关键字
+                if var_name in col_lower or col_lower in var_name:
+                    confidence = var_info['confidence'] * 0.8  # 模糊匹配降低置信度
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        best_match = var_info.copy()
+                        best_match['confidence'] = confidence
+            
+            if best_match:
+                return best_match
+            
+            # 无匹配时返回默认值
+            return {
+                'standard_name': None,
+                'units': None,
+                'confidence': 0.0
+            }
     
     def detect_anomalies(self, df: pd.DataFrame) -> Dict[str, List[str]]:
         """
@@ -431,6 +478,7 @@ class CSVParser:
             
             # 9. 解析配置
             parsing_config = {
+                "file_format": "csv",
                 "encoding": encoding,
                 "separator": separator,
                 "header_row": header_row,
@@ -451,6 +499,56 @@ class CSVParser:
                 "encoding_confidence": "high" if encoding in ['utf-8', 'utf-8-sig'] else "medium"
             }
             
+            # 11. 生成全局属性建议
+            try:
+                file_info = {
+                    'filename': file_path.split('/')[-1] if '/' in file_path else file_path,
+                    'filepath': file_path,
+                    'row_count': len(df)
+                }
+                
+                global_attributes = self.global_attr_generator.generate_global_attributes(
+                    file_info=file_info,
+                    column_info=columns,
+                    data_preview=preview_data[:10] if preview_data else None  # 使用前10行作为预览
+                )
+                
+                # 转换为字典格式以便JSON序列化
+                global_attr_dict = {
+                    'title': global_attributes.title,
+                    'summary': global_attributes.summary,
+                    'keywords': global_attributes.keywords,
+                    'institution': global_attributes.institution,
+                    'source': global_attributes.source,
+                    'history': global_attributes.history,
+                    'references': global_attributes.references,
+                    'conventions': global_attributes.conventions,
+                    'data_type': global_attributes.data_type,
+                    'processing_level': global_attributes.processing_level,
+                    'quality_control_level': global_attributes.quality_control_level,
+                    'geospatial_lat_min': global_attributes.geospatial_lat_min,
+                    'geospatial_lat_max': global_attributes.geospatial_lat_max,
+                    'geospatial_lon_min': global_attributes.geospatial_lon_min,
+                    'geospatial_lon_max': global_attributes.geospatial_lon_max,
+                    'geospatial_vertical_min': global_attributes.geospatial_vertical_min,
+                    'geospatial_vertical_max': global_attributes.geospatial_vertical_max,
+                    'time_coverage_start': global_attributes.time_coverage_start,
+                    'time_coverage_end': global_attributes.time_coverage_end,
+                    'time_coverage_duration': global_attributes.time_coverage_duration,
+                    'time_coverage_resolution': global_attributes.time_coverage_resolution,
+                    'creator_name': global_attributes.creator_name,
+                    'creator_email': global_attributes.creator_email,
+                    'creator_institution': global_attributes.creator_institution,
+                    'project': global_attributes.project,
+                    'program': global_attributes.program,
+                    'confidence': global_attributes.confidence,
+                    'auto_generated_fields': global_attributes.auto_generated_fields or []
+                }
+                
+            except Exception as e:
+                logger.warning(f"全局属性生成失败: {e}")
+                global_attr_dict = {'confidence': 0.0, 'auto_generated_fields': []}
+
             return {
                 "temp_id": temp_id,
                 "row_count": len(df),
@@ -458,7 +556,8 @@ class CSVParser:
                 "columns": columns,
                 "preview_data": preview_data,
                 "parsing_config": parsing_config,
-                "quality_report": quality_report
+                "quality_report": quality_report,
+                "global_attributes": global_attr_dict
             }
             
         except Exception as e:
@@ -467,9 +566,9 @@ class CSVParser:
 
 
 # 工厂函数
-def create_csv_parser() -> CSVParser:
+def create_csv_parser(db: Optional[Session] = None) -> CSVParser:
     """创建CSV解析器实例"""
-    return CSVParser()
+    return CSVParser(db)
 
 
 # 便捷函数

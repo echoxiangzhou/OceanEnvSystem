@@ -1056,12 +1056,12 @@ async def upload_data_file(file: UploadFile = File(...), db: Session = Depends(g
         file_info = {
             "temp_id": temp_id,
             "filename": file.filename,
-            "file_type": file_type,
+            "file_type": file_type.value if hasattr(file_type, 'value') else str(file_type),
             "file_size": len(content),
             "file_path": file_path,
-            "upload_time": datetime.now(),
-            "parse_status": parse_status,
-            "parse_message": parse_message,
+            "upload_time": datetime.now().isoformat(),
+            "parse_status": parse_status.value if hasattr(parse_status, 'value') else str(parse_status),
+            "parse_message": parse_message or "",
             "db_record_id": db_record.id
         }
         

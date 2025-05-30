@@ -10,6 +10,7 @@ CNV文件智能解析器
 - 提取仪器校准信息
 - 自动识别CTD、ADCP等仪器类型
 - 生成CF标准的元数据建议
+- 全局属性智能生成
 """
 
 import re
@@ -18,6 +19,11 @@ import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 import logging
+from sqlalchemy.orm import Session
+
+# 导入新的CF变量识别引擎和全局属性生成器
+from ..cf_standards.variable_identifier import CFVariableIdentifier, CFVariableSuggestion
+from ..cf_standards.global_attributes import GlobalAttributeGenerator, GlobalAttributeSuggestion
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +31,7 @@ logger = logging.getLogger(__name__)
 class CNVParser:
     """CNV文件智能解析器"""
     
-    # CTD变量映射表（按照SBE标准）
+    # CTD变量映射表（按照SBE标准）- 保留作为备份
     CTD_VARIABLE_MAPPING = {
         # 温度相关
         'tv290c': {'standard_name': 'sea_water_temperature', 'units': 'degree_C', 'confidence': 0.95},
@@ -95,11 +101,23 @@ class CNVParser:
         'glider': ['glider', 'slocum', 'seaglider']
     }
     
-    def __init__(self):
+    def __init__(self, db: Optional[Session] = None):
+        """
+        初始化CNV解析器
+        
+        Args:
+            db: 数据库会话，用于CF标准名称查询
+        """
         self.header_info = {}
         self.variables_info = []
         self.data_start_line = 0
         self.bad_flag = -9.990e-29
+        self.encoding = 'utf-8'
+        
+        # 初始化CF变量识别引擎
+        self.cf_identifier = CFVariableIdentifier(db=db)
+        # 初始化全局属性生成器
+        self.global_attr_generator = GlobalAttributeGenerator()
         
     def parse_file(self, file_path: str, temp_id: str) -> Dict[str, Any]:
         """
@@ -152,6 +170,56 @@ class CNVParser:
             # 8. 质量报告
             quality_report = self._generate_quality_report(data_df)
             
+            # 9. 生成全局属性建议
+            try:
+                file_info = {
+                    'filename': file_path.split('/')[-1] if '/' in file_path else file_path,
+                    'filepath': file_path,
+                    'row_count': len(data_df)
+                }
+                
+                global_attributes = self.global_attr_generator.generate_global_attributes(
+                    file_info=file_info,
+                    column_info=columns_info,
+                    data_preview=preview_data[:10] if preview_data else None  # 使用前10行作为预览
+                )
+                
+                # 转换为字典格式以便JSON序列化
+                global_attr_dict = {
+                    'title': global_attributes.title,
+                    'summary': global_attributes.summary,
+                    'keywords': global_attributes.keywords,
+                    'institution': global_attributes.institution,
+                    'source': global_attributes.source,
+                    'history': global_attributes.history,
+                    'references': global_attributes.references,
+                    'conventions': global_attributes.conventions,
+                    'data_type': global_attributes.data_type,
+                    'processing_level': global_attributes.processing_level,
+                    'quality_control_level': global_attributes.quality_control_level,
+                    'geospatial_lat_min': global_attributes.geospatial_lat_min,
+                    'geospatial_lat_max': global_attributes.geospatial_lat_max,
+                    'geospatial_lon_min': global_attributes.geospatial_lon_min,
+                    'geospatial_lon_max': global_attributes.geospatial_lon_max,
+                    'geospatial_vertical_min': global_attributes.geospatial_vertical_min,
+                    'geospatial_vertical_max': global_attributes.geospatial_vertical_max,
+                    'time_coverage_start': global_attributes.time_coverage_start,
+                    'time_coverage_end': global_attributes.time_coverage_end,
+                    'time_coverage_duration': global_attributes.time_coverage_duration,
+                    'time_coverage_resolution': global_attributes.time_coverage_resolution,
+                    'creator_name': global_attributes.creator_name,
+                    'creator_email': global_attributes.creator_email,
+                    'creator_institution': global_attributes.creator_institution,
+                    'project': global_attributes.project,
+                    'program': global_attributes.program,
+                    'confidence': global_attributes.confidence,
+                    'auto_generated_fields': global_attributes.auto_generated_fields or []
+                }
+                
+            except Exception as e:
+                logger.warning(f"全局属性生成失败: {e}")
+                global_attr_dict = {'confidence': 0.0, 'auto_generated_fields': []}
+
             result = {
                 "temp_id": temp_id,
                 "row_count": len(data_df),
@@ -166,7 +234,8 @@ class CNVParser:
                 },
                 "quality_report": quality_report,
                 "header_info": self.header_info,
-                "instrument_info": instrument_info
+                "instrument_info": instrument_info,
+                "global_attributes": global_attr_dict
             }
             
             logger.info(f"CNV文件解析成功: {len(data_df)}行 x {len(data_df.columns)}列")
@@ -428,52 +497,80 @@ class CNVParser:
         return columns_info
     
     def _suggest_cf_variable(self, var_name: str, description: str, units: str) -> Dict[str, Any]:
-        """基于变量名、描述和单位建议CF标准变量"""
-        var_name_lower = var_name.lower()
-        description_lower = description.lower()
-        
-        # 直接匹配变量名
-        if var_name_lower in self.CTD_VARIABLE_MAPPING:
-            return self.CTD_VARIABLE_MAPPING[var_name_lower].copy()
-        
-        # 模糊匹配
-        best_match = None
-        best_confidence = 0.0
-        
-        for ctd_var, var_info in self.CTD_VARIABLE_MAPPING.items():
-            confidence = 0.0
+        """基于变量名、描述和单位建议CF标准变量（使用新的CF识别引擎）"""
+        try:
+            # 使用新的CF变量识别引擎
+            suggestion = self.cf_identifier.identify_variable(
+                var_name=var_name,
+                description=description,
+                units=units,
+                sample_values=None,  # CNV解析阶段还没有样本值
+                column_index=None
+            )
             
-            # 检查变量名匹配
-            if ctd_var in var_name_lower or var_name_lower in ctd_var:
-                confidence += 0.6
-            
-            # 检查描述匹配
-            ctd_keywords = ctd_var.split('_')
-            for keyword in ctd_keywords:
-                if keyword in description_lower:
-                    confidence += 0.2
-            
-            # 检查单位匹配
-            if var_info.get('units') and units and var_info['units'].lower() in units.lower():
-                confidence += 0.3
-            
-            # 应用原始置信度
-            confidence *= var_info.get('confidence', 1.0)
-            
-            if confidence > best_confidence:
-                best_confidence = confidence
-                best_match = var_info.copy()
-                best_match['confidence'] = confidence
+            # 转换为原有格式以保持兼容性
+            return {
+                'standard_name': suggestion.standard_name,
+                'units': suggestion.units,
+                'confidence': suggestion.confidence,
+                'long_name': suggestion.long_name,
+                'valid_range': suggestion.valid_range,
+                'axis': suggestion.axis,
+                'positive': suggestion.positive,
+                'category': suggestion.category,
+                'match_type': suggestion.match_type,
+                'description': suggestion.description
+            }
         
-        if best_match and best_confidence > 0.3:
-            return best_match
-        
-        # 无匹配时返回默认值
-        return {
-            'standard_name': None,
-            'units': None,
-            'confidence': 0.0
-        }
+        except Exception as e:
+            logger.warning(f"CF变量识别失败，使用备用方法: {e}")
+            
+            # 备用方法：使用原有的CTD映射
+            var_name_lower = var_name.lower()
+            description_lower = description.lower()
+            
+            # 直接匹配变量名
+            if var_name_lower in self.CTD_VARIABLE_MAPPING:
+                return self.CTD_VARIABLE_MAPPING[var_name_lower].copy()
+            
+            # 模糊匹配
+            best_match = None
+            best_confidence = 0.0
+            
+            for ctd_var, var_info in self.CTD_VARIABLE_MAPPING.items():
+                confidence = 0.0
+                
+                # 检查变量名匹配
+                if ctd_var in var_name_lower or var_name_lower in ctd_var:
+                    confidence += 0.6
+                
+                # 检查描述匹配
+                ctd_keywords = ctd_var.split('_')
+                for keyword in ctd_keywords:
+                    if keyword in description_lower:
+                        confidence += 0.2
+                
+                # 检查单位匹配
+                if var_info.get('units') and units and var_info['units'].lower() in units.lower():
+                    confidence += 0.3
+                
+                # 应用原始置信度
+                confidence *= var_info.get('confidence', 1.0)
+                
+                if confidence > best_confidence:
+                    best_confidence = confidence
+                    best_match = var_info.copy()
+                    best_match['confidence'] = confidence
+            
+            if best_match and best_confidence > 0.3:
+                return best_match
+            
+            # 无匹配时返回默认值
+            return {
+                'standard_name': None,
+                'units': None,
+                'confidence': 0.0
+            }
     
     def _extract_instrument_info(self) -> Dict[str, Any]:
         """提取仪器信息"""
@@ -566,9 +663,9 @@ class CNVParser:
 
 
 # 工厂函数
-def create_cnv_parser() -> CNVParser:
+def create_cnv_parser(db: Optional[Session] = None) -> CNVParser:
     """创建CNV解析器实例"""
-    return CNVParser()
+    return CNVParser(db)
 
 
 # 便捷函数
