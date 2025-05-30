@@ -58,21 +58,21 @@ const DataBrowser: React.FC = () => {
       
       // 处理状态过滤：如果不是开发者模式，只显示标准数据
       if (!developerMode) {
-        params.processing_status = 'standard';
+        params.processing_status = 'STANDARD';
       } else if (filters.sourceType !== 'ALL') {
         // 在开发者模式下，允许按处理状态过滤
         switch (filters.sourceType) {
           case 'MODEL':
-            params.processing_status = 'standard';
+            params.processing_status = 'STANDARD';
             break;
           case 'SATELLITE':
-            params.processing_status = 'standard';
+            params.processing_status = 'STANDARD';
             break;
           case 'BUOY':
-            params.processing_status = 'processing';
+            params.processing_status = 'PROCESSING';
             break;
           case 'SURVEY':
-            params.processing_status = 'raw';
+            params.processing_status = 'RAW';
             break;
         }
       }

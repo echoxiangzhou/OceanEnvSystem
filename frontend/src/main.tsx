@@ -49,6 +49,26 @@ const router = createBrowserRouter([
     element: <AppLayout><DataImport /></AppLayout>,
   },
   {
+    path: "/data/import/upload",
+    element: <AppLayout><DataImport /></AppLayout>,
+  },
+  {
+    path: "/data/import/preview",
+    element: <AppLayout><DataImport /></AppLayout>,
+  },
+  {
+    path: "/data/import/metadata",
+    element: <AppLayout><DataImport /></AppLayout>,
+  },
+  {
+    path: "/data/import/validate",
+    element: <AppLayout><DataImport /></AppLayout>,
+  },
+  {
+    path: "/data/import/complete",
+    element: <AppLayout><DataImport /></AppLayout>,
+  },
+  {
     path: "/data/cf-check",
     element: <AppLayout><CFCompliancePage /></AppLayout>,
   },

@@ -159,9 +159,9 @@ const MetadataBrowser: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="ALL">全部</option>
-              <option value="raw">原始数据</option>
-              <option value="processing">处理中</option>
-              <option value="standard">标准数据</option>
+              <option value="RAW">原始数据</option>
+              <option value="PROCESSING">处理中</option>
+              <option value="STANDARD">标准数据</option>
             </select>
           </div>
 
