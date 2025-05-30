@@ -6,6 +6,8 @@ import fusionService from './fusionService';
 import productService from './productService';
 import taskService from './taskService';
 import { metadataService } from './metadataService';
+import { cfAPI } from './cfAPI';
+import importService from './importService';
 
 // Export all services
 export {
@@ -16,5 +18,7 @@ export {
   fusionService,
   productService,
   taskService,
-  metadataService
+  metadataService,
+  cfAPI,
+  importService
 };

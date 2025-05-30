@@ -1,18 +1,16 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useImportWizard } from '../../hooks/useImportWizard';
+import { ImportWizardProvider, useImportWizard } from '../../hooks/useImportWizard.tsx';
 import StepIndicator from '../../components/common/StepIndicator';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import ErrorMessage from '../../components/common/ErrorMessage';
+import { 
+  UploadStep, 
+  PreviewStep, 
+  MetadataStep, 
+  ValidateStep, 
+  CompleteStep 
+} from './ImportSteps';
 
-// 导入步骤组件
-import UploadStep from './ImportSteps/UploadStep';
-import PreviewStep from './ImportSteps/PreviewStep';
-import MetadataStep from './ImportSteps/MetadataStep';
-import ValidateStep from './ImportSteps/ValidateStep';
-import CompleteStep from './ImportSteps/CompleteStep';
-
-const DataImport: React.FC = () => {
+const DataImportContent: React.FC = () => {
   const navigate = useNavigate();
   const {
     steps,
@@ -43,6 +41,10 @@ const DataImport: React.FC = () => {
         return <UploadStep />;
     }
   };
+
+  // 实时检查canProceed结果
+  const currentCanProceed = canProceed(currentStepId);
+  const isDisabled = isLastStep || !currentCanProceed;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -98,9 +100,9 @@ const DataImport: React.FC = () => {
 
           <button
             onClick={nextStep}
-            disabled={isLastStep || !canProceed(currentStepId)}
+            disabled={isDisabled}
             className={`inline-flex items-center px-4 py-2 border shadow-sm text-sm font-medium rounded-md ${
-              isLastStep || !canProceed(currentStepId)
+              isDisabled
                 ? 'text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 cursor-not-allowed'
                 : 'text-white bg-blue-600 border-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-800'
             }`}
@@ -114,19 +116,15 @@ const DataImport: React.FC = () => {
           </button>
         </div>
       </div>
-
-      {/* 调试信息（开发时使用） */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mt-8 p-4 bg-gray-100 dark:bg-gray-900 rounded-lg">
-          <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">调试信息</h3>
-          <div className="text-xs text-gray-600 dark:text-gray-400">
-            <p>当前步骤: {currentStepId}</p>
-            <p>向导数据: {JSON.stringify(wizardData, null, 2)}</p>
-            <p>可继续: {canProceed(currentStepId) ? '是' : '否'}</p>
-          </div>
-        </div>
-      )}
     </div>
+  );
+};
+
+const DataImport: React.FC = () => {
+  return (
+    <ImportWizardProvider>
+      <DataImportContent />
+    </ImportWizardProvider>
   );
 };
 
